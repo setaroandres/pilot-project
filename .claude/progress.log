@@ -12,3 +12,10 @@
 [2026-06-30 19:30] completed feat(overview): replaced scaffold landing page with redirect to /login; rewrote Overview with app description, feature cards, highlights
 [2026-06-30 19:30] completed docs(test-guide): comprehensive test guide covering all pages, demo accounts, role matrix, API smoke tests, known limitations
 [2026-06-30 17:57] completed fix(ai-mock): add explicit patient/facility/readmission keywords; generic fallback now returns cross-domain summary — prevents all unmatched queries returning identical patient satisfaction chart
+[2026-06-30 18:45] completed feat(admin/layout): wrap /admin segment in DashboardShell — left sidebar now renders on /admin/cost and /admin/users with permission-filtered secondary nav
+[2026-06-30 19:00] completed feat(seed): add 46 pilot users across Clinical Ops (20), Finance (14), Executive (12) — total 50 users per spec; seedPilotUsers() is idempotent via upsert
+[2026-06-30 19:15] completed feat(query): add CSV export to query result cards — RFC 4180 compliant, ghost button shown when rows > 0, filename meridian-<turnId>.csv
+[2026-06-30 19:45] completed feat(charts): replace CSS bar chart with Recharts — 6 types (bar, line, area, scatter, table, kpi); mock AI gets line chart trigger for trend/quarterly queries
+[2026-06-30 20:15] completed feat(sse): add SSE narrated explanation — POST /api/narrate streams token-by-token via createAIStreamResponse; NarrationStream component uses useAIStream and fires on mount; mock AI returns context-aware narrations
+[2026-06-30 20:30] completed docs: update query-engine.md, mock-ai-client.md, ui-explorer.md, seed.md, test-guide.md to reflect 50 users, CSV export, Recharts 6 chart types, chart switcher, SSE narration
+[2026-06-30 21:55] completed feat(security): replace $queryRawUnsafe + AI-authored SQL with structured QuerySpec + parameterized Prisma — AI returns entity/measures/groupBy/orderBy/filters/limit; buildQuery() validates columns against per-entity allowlists and assembles Prisma.sql with parameterized filter values; displaySql threaded through API + client for SQL tab; validateSql() removed

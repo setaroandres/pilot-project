@@ -22,7 +22,10 @@ import { MockAIClient }                  from "@/lib/ai-mock";
 // ---------------------------------------------------------------------------
 
 setAIUsageSink(async (record) => {
-  await prisma.aIUsage.create({ data: record });
+  // Strip requestId — it's added by aiden-logging for tracing but the
+  // AIUsage Prisma model doesn't have that column.
+  const { requestId: _requestId, ...data } = record as typeof record & { requestId?: string };
+  await prisma.aIUsage.create({ data });
 });
 
 // ---------------------------------------------------------------------------

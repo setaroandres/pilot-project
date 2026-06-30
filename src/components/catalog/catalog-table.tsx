@@ -123,15 +123,11 @@ export function CatalogTable({ entries, domains }: CatalogTableProps) {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="max-w-xs text-sm">
-                    <span className="line-clamp-2">{entry.definition}</span>
+                  <TableCell className="text-sm leading-relaxed">
+                    {entry.definition}
                   </TableCell>
-                  <TableCell className="text-muted-foreground max-w-xs text-xs">
-                    {entry.caveats ? (
-                      <span className="line-clamp-2">{entry.caveats}</span>
-                    ) : (
-                      "—"
-                    )}
+                  <TableCell className="text-muted-foreground text-xs leading-relaxed">
+                    {entry.caveats ?? "—"}
                   </TableCell>
                 </TableRow>
               ))}

@@ -94,14 +94,6 @@ export default async function OverviewPage() {
             ))}
           </div>
         </div>
-
-        <p className="text-muted-foreground border-t border-border pt-6 text-xs">
-          Graded pilot for Meridian Health Systems. Demo credentials are in{" "}
-          <code className="bg-muted rounded-sm px-1 py-0.5 font-mono">
-            docs/project-documentation/seed.md
-          </code>
-          .
-        </p>
       </div>
     </div>
   );

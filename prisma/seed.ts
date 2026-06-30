@@ -149,6 +149,113 @@ async function seedDemoUsers(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Pilot users (50 total)
+//
+// 4 demo accounts above + 46 additional users across the three pilot
+// departments called out in the spec: Clinical Ops, Finance, Executive.
+//
+// Roles reflect realistic access patterns:
+//   Clinical Ops  → mostly analysts (query patient/operational data)
+//   Finance       → mostly analysts (query financial data)
+//   Executive     → viewers (read dashboards, cannot invoke query engine)
+//
+// All pilot passwords follow the same pattern as the demo accounts so the
+// test guide stays simple. bcrypt rounds are kept at 10 (same as demo users).
+// ---------------------------------------------------------------------------
+
+const PILOT_USERS: { email: string; name: string; password: string; role: string; department: string }[] = [
+  // ── Clinical Ops (20 users: 14 analysts, 6 viewers) ─────────────────────
+  { email: "m.chen@meridian.example",       name: "Marcus Chen",        password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "r.patel@meridian.example",      name: "Riya Patel",         password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "j.washington@meridian.example", name: "James Washington",   password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "l.nguyen@meridian.example",     name: "Linh Nguyen",        password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "t.robinson@meridian.example",   name: "Tanya Robinson",     password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "k.osei@meridian.example",       name: "Kwame Osei",         password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "a.garcia@meridian.example",     name: "Ana García",         password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "b.kim@meridian.example",        name: "Brian Kim",          password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "c.okonkwo@meridian.example",    name: "Chioma Okonkwo",     password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "d.silva@meridian.example",      name: "Diego Silva",        password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "e.jones@meridian.example",      name: "Elaine Jones",       password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "f.hassan@meridian.example",     name: "Fatima Hassan",      password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "g.murphy@meridian.example",     name: "Grace Murphy",       password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "h.tanaka@meridian.example",     name: "Hiroshi Tanaka",     password: "Analyst1234!", role: "analyst", department: "Clinical Ops" },
+  { email: "i.williams@meridian.example",   name: "Imani Williams",     password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+  { email: "j.pham@meridian.example",       name: "Jennifer Pham",      password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+  { email: "k.ali@meridian.example",        name: "Karim Ali",          password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+  { email: "l.brown@meridian.example",      name: "Latisha Brown",      password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+  { email: "m.kowalski@meridian.example",   name: "Marek Kowalski",     password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+  { email: "n.ramirez@meridian.example",    name: "Natalia Ramírez",    password: "Viewer1234!",  role: "viewer",  department: "Clinical Ops" },
+
+  // ── Finance (14 users: 10 analysts, 4 viewers) ───────────────────────────
+  { email: "o.adeyemi@meridian.example",    name: "Ola Adeyemi",        password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "p.chandra@meridian.example",    name: "Priya Chandra",      password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "q.santos@meridian.example",     name: "Quentin Santos",     password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "r.nguyen@meridian.example",     name: "Ryan Nguyen",        password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "s.ibrahim@meridian.example",    name: "Sara Ibrahim",       password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "t.johnson@meridian.example",    name: "Terrence Johnson",   password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "u.petrov@meridian.example",     name: "Ulyana Petrov",      password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "v.diallo@meridian.example",     name: "Vieux Diallo",       password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "w.chan@meridian.example",       name: "Wendy Chan",         password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "x.martin@meridian.example",    name: "Xavier Martín",      password: "Analyst1234!", role: "analyst", department: "Finance" },
+  { email: "y.schmidt@meridian.example",   name: "Yuki Schmidt",       password: "Viewer1234!",  role: "viewer",  department: "Finance" },
+  { email: "z.foster@meridian.example",    name: "Zoe Foster",         password: "Viewer1234!",  role: "viewer",  department: "Finance" },
+  { email: "aa.ito@meridian.example",      name: "Akira Ito",          password: "Viewer1234!",  role: "viewer",  department: "Finance" },
+  { email: "ab.mensah@meridian.example",   name: "Aba Mensah",         password: "Viewer1234!",  role: "viewer",  department: "Finance" },
+
+  // ── Executive (12 users: all viewers) ───────────────────────────────────
+  // (sarah@meridian.example — COO — is already seeded as a demo user)
+  { email: "ac.vasquez@meridian.example",  name: "Elena Vasquez",      password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ad.chen@meridian.example",     name: "Robert Chen",        password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ae.okafor@meridian.example",   name: "Emeka Okafor",       password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "af.bernstein@meridian.example",name: "Rachel Bernstein",   password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ag.nakamura@meridian.example", name: "Kenji Nakamura",     password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ah.delgado@meridian.example",  name: "Isabel Delgado",     password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ai.walsh@meridian.example",    name: "Patrick Walsh",      password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "aj.liu@meridian.example",      name: "Catherine Liu",      password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "ak.nwosu@meridian.example",    name: "Adaeze Nwosu",       password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "al.reid@meridian.example",     name: "Douglas Reid",       password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "am.flores@meridian.example",   name: "Carmen Flores",      password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+  { email: "an.osei@meridian.example",     name: "Abena Osei",         password: "Viewer1234!",  role: "viewer",  department: "Executive" },
+];
+
+async function seedPilotUsers(): Promise<void> {
+  // Hash all passwords in parallel — safe because bcrypt has its own CPU
+  // cost and we're not racing on any shared state.
+  const hashed = await Promise.all(
+    PILOT_USERS.map((u) => bcrypt.hash(u.password, 10))
+  );
+
+  for (let i = 0; i < PILOT_USERS.length; i++) {
+    const u            = PILOT_USERS[i]!;
+    const passwordHash = hashed[i]!;
+
+    const user = await prisma.user.upsert({
+      where:  { email: u.email },
+      create: { email: u.email, name: u.name, passwordHash },
+      update: { name: u.name },
+    });
+
+    const role = await prisma.role.findUniqueOrThrow({ where: { name: u.role } });
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data:  { roles: { set: [{ id: role.id }] } },
+    });
+  }
+
+  const counts = PILOT_USERS.reduce<Record<string, number>>((acc, u) => {
+    acc[u.department] = (acc[u.department] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const summary = Object.entries(counts)
+    .map(([dept, n]) => `${dept}: ${n}`)
+    .join(", ");
+
+  console.log(`  seeded ${PILOT_USERS.length} pilot users (${summary})`);
+}
+
+// ---------------------------------------------------------------------------
 // Patient outcomes
 // ---------------------------------------------------------------------------
 
@@ -450,6 +557,7 @@ async function main(): Promise<void> {
 
   await seedRolesAndPermissions();
   await seedDemoUsers();
+  await seedPilotUsers();
   await seedPatientOutcomes();
   await seedOperationalMetrics();
   await seedFinancialRecords();

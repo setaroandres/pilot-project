@@ -42,6 +42,26 @@ function buildMockText(options: AICompleteOptions): string {
   const q = lastUser.toLowerCase();
 
   if (!options.responseSchema) {
+    // Narration request — the narrate route embeds the original question in the
+    // prompt so keyword matching still works here.
+    if (lastUser.includes("Narrate the following")) {
+      if (q.includes("revenue") || q.includes("financial") || q.includes("reimbursement")) {
+        return "Austin Medical Center leads Meridian's network in total revenue, driven by strong reimbursement rates across all major payers. Dallas Regional Hospital and Houston Westside Medical follow closely behind, while the remaining facilities show consistent but lower volumes. Overall the portfolio is healthy with no significant outliers, though Fort Worth Community warrants a closer look at its payer mix.";
+      }
+      if (q.includes("readmission") || q.includes("satisfaction") || q.includes("patient") || q.includes("outcome")) {
+        return "Patient satisfaction scores vary meaningfully across facilities, with Austin Medical Center ranking highest in the network and Corpus Christi Hospital showing the most room for improvement. Readmission rates are within acceptable clinical thresholds at most sites, though El Paso Health Center is slightly elevated and may benefit from a targeted care-transition review. Average length of stay across the portfolio sits at approximately 4.2 days, in line with national benchmarks for this case mix.";
+      }
+      if (q.includes("trend") || q.includes("quarter") || q.includes("occupancy") || q.includes("period")) {
+        return "Bed occupancy rates have trended upward across every quarter, peaking at 78% in 2024-Q3 — up from 71% in 2023-Q1 — consistent with seasonal demand patterns and network growth. The steady rise indicates growing utilization without yet reaching capacity constraints, giving the network a reasonable runway before expansion becomes critical. Monitoring Q4 figures will be important to assess whether the peak is cyclical or structural.";
+      }
+      if (q.includes("staffing") || q.includes("operational") || q.includes("er wait") || q.includes("bed")) {
+        return "Staffing efficiency metrics reveal clear performance gaps, with Plano Specialty Center and Austin Medical Center posting the highest scores across the network. ER wait times correlate inversely with staffing efficiency scores, suggesting that targeted workforce investments directly reduce patient wait times. Three facilities are currently operating below the network's 70th-percentile threshold and would benefit from a workforce planning review in the next planning cycle.";
+      }
+      // Generic narration — row count is embedded in the prompt as "Rows returned: N"
+      const rowMatch = /rows returned:\s*(\d+)/i.exec(lastUser);
+      const n = rowMatch ? rowMatch[1] : "several";
+      return `The query returned ${n} rows from the Meridian Health dataset. Results show meaningful variation across facilities, with some outperforming the network average and others presenting clear opportunities for improvement. This data can be used to prioritise operational initiatives and inform resource allocation decisions in the next planning cycle.`;
+    }
     return "Mock AI provider active. No real API call was made.";
   }
 
@@ -54,23 +74,52 @@ function buildMockText(options: AICompleteOptions): string {
     q.includes("claim")
   ) {
     return JSON.stringify({
-      sql: [
-        "SELECT facility, SUM(revenue) AS total_revenue,",
-        "       AVG(reimbursement_rate) AS avg_rate",
-        "FROM   financial_records",
-        "WHERE  period LIKE \'2024%\'",
-        "GROUP  BY facility",
-        "ORDER  BY total_revenue DESC",
-        "LIMIT  10",
-      ].join(" "),
+      entity:   "financial_records",
+      measures: [
+        { column: "revenue",           agg: "sum", alias: "total_revenue" },
+        { column: "reimbursement_rate", agg: "avg", alias: "avg_rate"    },
+      ],
+      groupBy: ["facility"],
+      orderBy: [{ column: "total_revenue", dir: "desc" }],
+      filters: [],
+      limit:   10,
       chartSpec: {
         type:  "bar",
         xAxis: "facility",
         yAxis: "total_revenue",
-        title: "Total Revenue by Facility (2024)",
+        title: "Total Revenue by Facility",
       },
       explanation:
-        "Aggregates total revenue and average reimbursement rate per facility for 2024.",
+        "Aggregates total revenue and average reimbursement rate per facility for 2023.",
+    });
+  }
+
+  // Time-series / trend keywords → line chart
+  if (
+    q.includes("trend")      ||
+    q.includes("over time")  ||
+    q.includes("by quarter") ||
+    q.includes("quarterly")  ||
+    q.includes("by period")
+  ) {
+    return JSON.stringify({
+      entity:   "operational_metrics",
+      measures: [
+        { column: "bed_occupancy_rate", agg: "avg", alias: "avg_bed_occupancy" },
+        { column: "er_wait_minutes",    agg: "avg", alias: "avg_er_wait"       },
+      ],
+      groupBy: ["period"],
+      orderBy: [{ column: "period", dir: "asc" }],
+      filters: [],
+      limit:   50,
+      chartSpec: {
+        type:  "line",
+        xAxis: "period",
+        yAxis: "avg_bed_occupancy",
+        title: "Bed Occupancy Rate by Quarter",
+      },
+      explanation:
+        "Tracks average bed occupancy rate across all facilities over each quarter.",
     });
   }
 
@@ -83,15 +132,16 @@ function buildMockText(options: AICompleteOptions): string {
     q.includes("occupancy")
   ) {
     return JSON.stringify({
-      sql: [
-        "SELECT facility,",
-        "       AVG(staffing_efficiency)  AS avg_staffing,",
-        "       AVG(bed_occupancy_rate)   AS avg_occupancy,",
-        "       AVG(er_wait_minutes)      AS avg_wait",
-        "FROM   operational_metrics",
-        "GROUP  BY facility",
-        "ORDER  BY avg_staffing DESC",
-      ].join(" "),
+      entity:   "operational_metrics",
+      measures: [
+        { column: "staffing_efficiency", agg: "avg", alias: "avg_staffing"  },
+        { column: "bed_occupancy_rate",  agg: "avg", alias: "avg_occupancy" },
+        { column: "er_wait_minutes",     agg: "avg", alias: "avg_wait"      },
+      ],
+      groupBy: ["facility"],
+      orderBy: [{ column: "avg_staffing", dir: "desc" }],
+      filters: [],
+      limit:   50,
       chartSpec: {
         type:  "bar",
         xAxis: "facility",
@@ -105,25 +155,26 @@ function buildMockText(options: AICompleteOptions): string {
 
   // Patient outcomes keywords (explicit match before generic fallback)
   if (
-    q.includes("readmission")   ||
-    q.includes("satisfaction")  ||
+    q.includes("readmission")    ||
+    q.includes("satisfaction")   ||
     q.includes("length of stay") ||
-    q.includes("los")           ||
-    q.includes("patient")       ||
-    q.includes("mortality")     ||
-    q.includes("outcome")       ||
+    q.includes("los")            ||
+    q.includes("patient")        ||
+    q.includes("mortality")      ||
+    q.includes("outcome")        ||
     q.includes("facility")
   ) {
     return JSON.stringify({
-      sql: [
-        "SELECT facility,",
-        "       AVG(satisfaction_score)  AS avg_satisfaction,",
-        "       AVG(readmission_rate)    AS avg_readmission,",
-        "       AVG(avg_length_of_stay)  AS avg_los",
-        "FROM   patient_outcomes",
-        "GROUP  BY facility",
-        "ORDER  BY avg_satisfaction DESC",
-      ].join(" "),
+      entity:   "patient_outcomes",
+      measures: [
+        { column: "satisfaction_score", agg: "avg", alias: "avg_satisfaction" },
+        { column: "readmission_rate",   agg: "avg", alias: "avg_readmission"  },
+        { column: "avg_length_of_stay", agg: "avg", alias: "avg_los"          },
+      ],
+      groupBy: ["facility"],
+      orderBy: [{ column: "avg_satisfaction", dir: "desc" }],
+      filters: [],
+      limit:   50,
       chartSpec: {
         type:  "bar",
         xAxis: "facility",
@@ -135,15 +186,16 @@ function buildMockText(options: AICompleteOptions): string {
     });
   }
 
-  // Generic fallback — no domain keywords matched; returns a per-facility record count from patient_outcomes
+  // Generic fallback — no domain keywords matched
   return JSON.stringify({
-    sql: [
-      "SELECT facility,",
-      "       COUNT(*) AS record_count",
-      "FROM   patient_outcomes",
-      "GROUP  BY facility",
-      "ORDER  BY record_count DESC",
-    ].join(" "),
+    entity:   "patient_outcomes",
+    measures: [
+      { column: "facility", agg: "count", alias: "record_count" },
+    ],
+    groupBy: ["facility"],
+    orderBy: [{ column: "record_count", dir: "desc" }],
+    filters: [],
+    limit:   50,
     chartSpec: {
       type:  "bar",
       xAxis: "facility",

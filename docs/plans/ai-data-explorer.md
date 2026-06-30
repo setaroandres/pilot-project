@@ -528,14 +528,6 @@ Before writing code, verify the following:
 
 ---
 
-## Open Questions (to resolve before build)
-
-1. **Context window for follow-up turns:** `aiden-ai`'s `AICompleteOptions` accepts a `messages: AIMessage[]` array — confirmed from type definitions. Multi-turn context is supported natively. The route will pass the last N turns (capped at 10) as prior messages.
-2. **Export (PNG, CSV):** the spec lists this under Dynamic Visualization. Which routes expose raw data for CSV download? Does this need a dedicated `/api/query/[turnId]/export` route, or does the client render from cached `data` in the turn?
-3. **Prompt injection probe:** the spec says "a seeded adversarial record must not override or echo the system prompt — probed and graded even under the mock provider." We need one adversarial row in the seed (e.g., a facility name that contains an injection attempt) and a test to confirm it's fenced in the user message.
-4. ~~**`AIUsage` model source**~~ — **Resolved:** not in `aiden-db`. Must be added as `prisma/fragments/ai-usage.prisma`. See Data section above.
-5. ~~**Viewer shared dashboards**~~ — **Resolved:** The pins page is visible to viewers in the nav, but renders an informational box instead of the pins grid: *"Pinned visualizations are available to Analyst and Admin accounts. Contact your administrator to upgrade your access."* Role is checked server-side in the page component before rendering. No sharing mechanism is built — "dashboards her team pinned for her" in the persona is Phase 2 vision language, not pilot scope. The out-of-scope section ("shared/team dashboards — personal only") takes precedence.
-
 ## Resolved Pre-Build Blockers
 
 | Question | Finding | Impact on Plan |

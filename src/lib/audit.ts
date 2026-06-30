@@ -20,9 +20,9 @@ import { prisma } from "@/lib/prisma";
 setAuditSink(
   createPrismaAuditSink({
     prisma,
-    captureRequestMeta: () => {
+    captureRequestMeta: async () => {
       try {
-        const h = headers() as unknown as Headers;
+        const h = await headers();
         return {
           ipAddress:
             h.get("x-forwarded-for")?.split(",")[0]?.trim() ??

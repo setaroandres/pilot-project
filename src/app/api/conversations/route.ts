@@ -51,6 +51,7 @@ export const POST = withAuth(async (req, { session }) => {
         id:          turn.id,
         userQuery:   question,
         querySpec:   result.querySpec,
+        displaySql:  result.displaySql,
         rows:        result.rows,
         rowCount:    result.rowCount,
         executionMs: result.executionMs,

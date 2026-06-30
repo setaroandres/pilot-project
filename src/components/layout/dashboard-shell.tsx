@@ -61,7 +61,7 @@ export function DashboardShell({
         />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-      <Toaster />
+      <Toaster richColors />
     </div>
   );
 }

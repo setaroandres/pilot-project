@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Pin, Code2, MessageSquare, AlertCircle } from "lucide-react";
+import {
+  Pin, Code2, MessageSquare, AlertCircle, Download,
+  BarChart2, LineChart, Activity, Crosshair, Table, LayoutGrid,
+} from "lucide-react";
 import {
   PageHeader,
   Button,
@@ -16,7 +19,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { QueryInput, type QueryTurnResult } from "@/components/query/query-input";
 import { ResultsTable }                      from "@/components/query/results-table";
-import { ChartView }                         from "@/components/query/chart-view";
+import { ChartView }          from "@/components/query/chart-view";
+import { NarrationStream }   from "@/components/query/narration-stream";
 
 interface QueryPageClientProps {
   canQuery:              boolean;
@@ -41,11 +45,64 @@ interface TurnState {
   pinned:  boolean;
 }
 
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+
+/** Escapes a cell value for RFC 4180 CSV: wraps in double-quotes if the value
+ *  contains commas, newlines, or double-quotes; doubles any internal quotes. */
+function csvCell(value: unknown): string {
+  const str =
+    value === null || value === undefined
+      ? ""
+      : typeof value === "number"
+        ? Number.isInteger(value) ? value.toString() : value.toFixed(2)
+        : String(value);
+
+  if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function downloadCsv(rows: Record<string, unknown>[], filename: string): void {
+  if (rows.length === 0) return;
+
+  const columns = Object.keys(rows[0]!);
+  const header  = columns.map(csvCell).join(",");
+  const body    = rows.map((row) => columns.map((c) => csvCell(row[c])).join(",")).join("\n");
+  const csv     = `${header}\n${body}`;
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Chart type switcher config
+// ---------------------------------------------------------------------------
+
+const CHART_TYPES = [
+  { key: "bar",     label: "Bar",     icon: BarChart2   },
+  { key: "line",    label: "Line",    icon: LineChart   },
+  { key: "area",    label: "Area",    icon: Activity    },
+  { key: "scatter", label: "Scatter", icon: Crosshair   },
+  { key: "table",   label: "Table",   icon: Table       },
+  { key: "kpi",     label: "KPI",     icon: LayoutGrid  },
+] as const;
+
+// ---------------------------------------------------------------------------
+
 export function QueryPageClient({ canQuery, initialConversationId }: QueryPageClientProps) {
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
   const [turns,          setTurns]          = useState<TurnState[]>([]);
   const [loading,        setLoading]        = useState(false);
   const [activeTab,      setActiveTab]      = useState<Record<string, "table" | "chart" | "sql">>({});
+  const [chartTypeOverride, setChartTypeOverride] = useState<Record<string, string>>({});
 
   function getTab(turnId: string): "table" | "chart" | "sql" {
     return activeTab[turnId] ?? "table";
@@ -80,7 +137,7 @@ export function QueryPageClient({ canQuery, initialConversationId }: QueryPageCl
   }
 
   function handleError(message: string) {
-    toast.error("Query failed", { description: message });
+    toast.error(message);
     setLoading(false);
   }
 
@@ -178,23 +235,42 @@ export function QueryPageClient({ canQuery, initialConversationId }: QueryPageCl
                 </div>
                 <div>
                   <CardTitle className="text-sm font-semibold">{turn.userQuery}</CardTitle>
-                  <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
-                    {turn.explanation}
-                  </p>
+                  <NarrationStream
+                    question={turn.userQuery}
+                    rowCount={turn.rowCount}
+                    chartType={turn.chartSpec?.type ?? "bar"}
+                    fallback={turn.explanation}
+                  />
                 </div>
               </div>
-              {canQuery && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={turn.pinning || turn.pinned}
-                  onClick={() => void handlePin(turn)}
-                  className="shrink-0"
-                >
-                  <Pin className="mr-1.5 size-3.5" strokeWidth={1.5} />
-                  {turn.pinned ? "Pinned" : turn.pinning ? "Saving…" : "Pin"}
-                </Button>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {turn.rows.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      downloadCsv(
+                        turn.rows,
+                        `meridian-${turn.id.slice(0, 8)}.csv`
+                      )
+                    }
+                  >
+                    <Download className="mr-1.5 size-3.5" strokeWidth={1.5} />
+                    CSV
+                  </Button>
+                )}
+                {canQuery && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={turn.pinning || turn.pinned}
+                    onClick={() => void handlePin(turn)}
+                  >
+                    <Pin className="mr-1.5 size-3.5" strokeWidth={1.5} />
+                    {turn.pinned ? "Pinned" : turn.pinning ? "Saving…" : "Pin"}
+                  </Button>
+                )}
+              </div>
             </CardHeader>
 
             <CardContent className="space-y-4 pt-0">
@@ -234,7 +310,39 @@ export function QueryPageClient({ canQuery, initialConversationId }: QueryPageCl
               )}
 
               {getTab(turn.id) === "chart" && turn.chartSpec && (
-                <ChartView rows={turn.rows} chartSpec={turn.chartSpec} />
+                <div className="space-y-3">
+                  {/* Chart type switcher */}
+                  <div className="flex items-center gap-1">
+                    {CHART_TYPES.map(({ key, icon: Icon, label }) => {
+                      const active = (chartTypeOverride[turn.id] ?? turn.chartSpec!.type) === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          title={label}
+                          onClick={() =>
+                            setChartTypeOverride((prev) => ({ ...prev, [turn.id]: key }))
+                          }
+                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <Icon className="size-3.5" strokeWidth={1.5} />
+                          <span className="hidden sm:inline">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <ChartView
+                    rows={turn.rows}
+                    chartSpec={{
+                      ...turn.chartSpec,
+                      type: chartTypeOverride[turn.id] ?? turn.chartSpec.type,
+                    }}
+                  />
+                </div>
               )}
 
               {getTab(turn.id) === "sql" && (

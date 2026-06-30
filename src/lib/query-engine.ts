@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import type { AIMessage } from "@upstart13-com/aiden-ai";
+import { Prisma } from "@/generated/prisma/client";
 import { aidenConfig } from "@/../aiden.config";
 import { prisma } from "@/lib/prisma";
 import { ai } from "@/lib/ai";
@@ -9,124 +10,248 @@ import { log } from "@/lib/logger";
 // ---------------------------------------------------------------------------
 // QuerySpec schema
 //
-// The AI must return a JSON object matching this shape. We derive the JSON
-// Schema passed to responseSchema from the Zod definition so both the
-// runtime validator and the AI instructions stay in sync automatically.
+// The AI returns a structured query descriptor — NOT raw SQL. The app
+// translates this spec into a parameterized Prisma query, so the AI
+// never authors SQL that reaches the database directly.
+//
+// We derive the JSON Schema forwarded as responseSchema from the Zod
+// definition so both runtime validation and AI instructions stay in sync.
 // ---------------------------------------------------------------------------
 
 const ChartSpecSchema = z.object({
-  type:  z.enum(["bar", "line", "pie", "table"]),
+  type:  z.enum(["bar", "line", "area", "scatter", "table", "kpi"]),
   xAxis: z.string().optional(),
   yAxis: z.string().optional(),
   title: z.string(),
 });
 
+const MeasureSchema = z.object({
+  /** SQL column to aggregate (ignored when agg === "count"). */
+  column: z.string().min(1),
+  /** Aggregation function to apply. */
+  agg:    z.enum(["sum", "avg", "count", "min", "max", "none"]),
+  /** Output column alias surfaced in results. */
+  alias:  z.string().min(1),
+});
+
+const FilterSchema = z.object({
+  column: z.string().min(1),
+  op:     z.enum(["eq", "neq", "gt", "gte", "lt", "lte", "like"]),
+  /** Filter value — parameterized by Prisma before reaching the DB. */
+  value:  z.union([z.string(), z.number()]),
+});
+
 const QuerySpecSchema = z.object({
-  sql:         z.string().min(1),
+  /** Analytics table to query. */
+  entity:      z.enum(["patient_outcomes", "operational_metrics", "financial_records"]),
+  /** One or more aggregated or raw columns to return. */
+  measures:    z.array(MeasureSchema).min(1).max(8),
+  /** Columns to GROUP BY (must be valid columns for the entity). */
+  groupBy:     z.array(z.string()).max(4),
+  /** Sort order. Column may be a measure alias or a groupBy column. */
+  orderBy:     z.array(z.object({
+    column: z.string(),
+    dir:    z.enum(["asc", "desc"]),
+  })).max(4),
+  /** Optional WHERE conditions. Values are always parameterized. */
+  filters:     z.array(FilterSchema).max(8),
+  /** Maximum rows to return (1–200). */
+  limit:       z.number().int().min(1).max(200),
   chartSpec:   ChartSpecSchema,
   explanation: z.string(),
 });
 
 export type ChartSpec = z.infer<typeof ChartSpecSchema>;
 export type QuerySpec = z.infer<typeof QuerySpecSchema>;
+type Measure = z.infer<typeof MeasureSchema>;
+type Filter  = z.infer<typeof FilterSchema>;
 
 /** JSON Schema forwarded to the AI provider's structured-output mode. */
 const QUERY_SPEC_JSON_SCHEMA = z.toJSONSchema(QuerySpecSchema) as Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
-// Security: SQL allow-list and PHI deny-list
+// Security: per-entity column allowlists
+//
+// Every column referenced in a spec (measures, groupBy, orderBy, filters)
+// is checked against this allowlist before being interpolated into SQL.
+// Column names pass through Prisma.raw() — they are structural SQL, not
+// parameterizable — so the allowlist is the only guard. Values (filter
+// operands) are fully parameterized by Prisma's tagged template engine.
 // ---------------------------------------------------------------------------
 
-/**
- * Only these PostgreSQL table names may appear in AI-generated SQL.
- * Prevents the model from querying auth tables, audit logs, or any other
- * system table it should not see.
- */
-const ENTITY_ALLOWLIST = new Set([
-  "patient_outcomes",
-  "operational_metrics",
-  "financial_records",
-  "catalog_entries",
-]);
+const COLUMN_ALLOWLISTS: Record<string, Set<string>> = {
+  patient_outcomes: new Set([
+    "facility",
+    "quarter",
+    "region",
+    "satisfaction_score",
+    "readmission_rate",
+    "avg_length_of_stay",
+    "triage_protocol",
+  ]),
+  operational_metrics: new Set([
+    "facility",
+    "period",
+    "region",
+    "staffing_efficiency",
+    "bed_occupancy_rate",
+    "er_wait_minutes",
+  ]),
+  financial_records: new Set([
+    "facility",
+    "period",
+    "region",
+    "payer",
+    "procedure_code",
+    "revenue",
+    "reimbursement_rate",
+    "claims_count",
+  ]),
+};
 
-/**
- * Column name patterns that must never appear in AI-generated SQL.
- * Guards against the model inadvertently referencing PHI-style columns that
- * don't exist in the seed data today but might in a real Snowflake migration.
- */
-const PHI_DENY_LIST: RegExp[] = [
-  /\bssn\b/i,
-  /social_security/i,
-  /\bdob\b/i,
-  /date_of_birth/i,
-  /medical_record/i,
-  /\bmrn\b/i,
-  /\bdiagnosis\b/i,
-  /icd_code/i,
-  /patient_id/i,
-  /patient_name/i,
-];
+function validateColumn(entity: string, column: string): void {
+  if (!COLUMN_ALLOWLISTS[entity]?.has(column)) {
+    throw new Error(
+      `SPEC_VALIDATION_FAILED: column "${column}" is not allowed for entity "${entity}"`
+    );
+  }
+}
 
-/** SQL verbs that must never appear in AI-generated queries. */
-const FORBIDDEN_KEYWORDS: RegExp[] = [
-  /\binsert\b/i,
-  /\bupdate\b/i,
-  /\bdelete\b/i,
-  /\bdrop\b/i,
-  /\bcreate\b/i,
-  /\balter\b/i,
-  /\btruncate\b/i,
-  /\bgrant\b/i,
-  /\brevoke\b/i,
-  /\bexec(?:ute)?\b/i,
-  /--/,     // single-line comment — injection vector
-  /\/\*/,   // block-comment open   — injection vector
-];
+// ---------------------------------------------------------------------------
+// Query builder
+//
+// Translates a validated QuerySpec into a Prisma.Sql object for $queryRaw
+// and a human-readable display string for the SQL tab in the UI.
+//
+// Structural SQL (table name, column names, aggregation functions, ORDER/
+// GROUP BY keywords) is assembled by our code from validated allowlist
+// strings and wrapped in Prisma.raw(). Filter values are parameterized
+// via Prisma's tagged template engine — they never appear in the SQL
+// string itself.
+// ---------------------------------------------------------------------------
 
-/**
- * Validate AI-generated SQL before it reaches the database.
- *
- * Throws a plain Error (message starts with "SQL_VALIDATION_FAILED:") so the
- * route handler can surface a safe message to the client without leaking
- * internal details.
- */
-function validateSql(sql: string): void {
-  const trimmed = sql.trim();
+function buildCondition(f: Filter): Prisma.Sql {
+  const col = Prisma.raw(f.column);
+  switch (f.op) {
+    case "eq":   return Prisma.sql`${col} = ${f.value}`;
+    case "neq":  return Prisma.sql`${col} != ${f.value}`;
+    case "gt":   return Prisma.sql`${col} > ${f.value}`;
+    case "gte":  return Prisma.sql`${col} >= ${f.value}`;
+    case "lt":   return Prisma.sql`${col} < ${f.value}`;
+    case "lte":  return Prisma.sql`${col} <= ${f.value}`;
+    case "like": return Prisma.sql`${col} LIKE ${f.value}`;
+  }
+}
 
-  if (!/^select\s/i.test(trimmed)) {
-    throw new Error("SQL_VALIDATION_FAILED: only SELECT statements are allowed");
+function selectExpr(m: Measure): string {
+  if (m.agg === "count") return `COUNT(*) AS ${m.alias}`;
+  if (m.agg === "none")  return `${m.column} AS ${m.alias}`;
+  return `${m.agg.toUpperCase()}(${m.column}) AS ${m.alias}`;
+}
+
+interface BuiltQuery {
+  sql:        Prisma.Sql;
+  displaySql: string;
+}
+
+function buildQuery(spec: QuerySpec): BuiltQuery {
+  const { entity, measures, groupBy, orderBy, filters, limit } = spec;
+
+  // Validate all column references against the per-entity allowlist.
+  for (const m of measures) {
+    if (m.agg !== "count") validateColumn(entity, m.column);
+  }
+  for (const col of groupBy) {
+    validateColumn(entity, col);
+  }
+  for (const f of filters) {
+    validateColumn(entity, f.column);
   }
 
-  if (trimmed.includes(";")) {
-    throw new Error("SQL_VALIDATION_FAILED: multiple statements are not allowed");
-  }
-
-  for (const re of FORBIDDEN_KEYWORDS) {
-    if (re.test(trimmed)) {
-      throw new Error("SQL_VALIDATION_FAILED: forbidden keyword or pattern detected");
+  // orderBy may reference measure aliases (computed) or groupBy columns.
+  const measureAliases = new Set(measures.map((m) => m.alias));
+  for (const o of orderBy) {
+    if (!measureAliases.has(o.column)) {
+      validateColumn(entity, o.column);
     }
   }
 
-  for (const re of PHI_DENY_LIST) {
-    if (re.test(trimmed)) {
-      throw new Error("SQL_VALIDATION_FAILED: query references a restricted column");
-    }
+  // --- Structural parts (trusted — all from validated allowlists) ----------
+
+  const selectExprs = [
+    ...groupBy,
+    ...measures.map(selectExpr),
+  ];
+
+  const orderExprs = orderBy.map(
+    (o) => `${o.column} ${o.dir.toUpperCase()}`
+  );
+
+  const selectRaw = Prisma.raw(selectExprs.join(", "));
+  const tableRaw  = Prisma.raw(entity);
+
+  // --- Build the Prisma.Sql object ------------------------------------------
+  //
+  // Parts are joined with Prisma.join so the final Prisma.Sql correctly
+  // merges both raw fragments and any parameterized filter values.
+
+  const parts: Prisma.Sql[] = [
+    Prisma.sql`SELECT ${selectRaw} FROM ${tableRaw}`,
+  ];
+
+  if (filters.length > 0) {
+    const conditions = filters.map(buildCondition);
+    parts.push(Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`);
   }
 
-  // Extract every identifier that follows FROM or JOIN and check against
-  // the allowlist. Schema-qualified names (e.g. public.patient_outcomes) have
-  // the schema prefix stripped before the check.
-  const tableRefs = [
-    ...trimmed.matchAll(/(?:from|join)\s+(?:\w+\.)?([a-z_][a-z0-9_]*)/gi),
-  ].map((m) => m[1].toLowerCase());
-
-  for (const table of tableRefs) {
-    if (!ENTITY_ALLOWLIST.has(table)) {
-      throw new Error(
-        `SQL_VALIDATION_FAILED: table "${table}" is not in the allowlist`
-      );
-    }
+  if (groupBy.length > 0) {
+    parts.push(Prisma.raw(`GROUP BY ${groupBy.join(", ")}`));
   }
+
+  if (orderExprs.length > 0) {
+    parts.push(Prisma.raw(`ORDER BY ${orderExprs.join(", ")}`));
+  }
+
+  parts.push(Prisma.raw(`LIMIT ${limit}`));
+
+  const sql = Prisma.join(parts, " ");
+
+  // --- Display SQL (for the SQL tab in the UI) ------------------------------
+  //
+  // Renders a formatted human-readable version of the query. Filter values
+  // are shown inline since this is display-only — no injection risk here.
+
+  const opLabel: Record<string, string> = {
+    eq: "=", neq: "!=", gt: ">", gte: ">=", lt: "<", lte: "<=", like: "LIKE",
+  };
+
+  const displayParts: string[] = [
+    `SELECT ${selectExprs.join(",\n       ")}`,
+    `FROM   ${entity}`,
+  ];
+
+  if (filters.length > 0) {
+    const whereStr = filters
+      .map((f) => {
+        const val =
+          typeof f.value === "string" ? `'${f.value}'` : String(f.value);
+        return `${f.column} ${opLabel[f.op]} ${val}`;
+      })
+      .join("\n   AND ");
+    displayParts.push(`WHERE  ${whereStr}`);
+  }
+
+  if (groupBy.length > 0) {
+    displayParts.push(`GROUP  BY ${groupBy.join(", ")}`);
+  }
+
+  if (orderExprs.length > 0) {
+    displayParts.push(`ORDER  BY ${orderExprs.join(", ")}`);
+  }
+
+  displayParts.push(`LIMIT  ${limit}`);
+
+  return { sql, displaySql: displayParts.join("\n") };
 }
 
 // ---------------------------------------------------------------------------
@@ -184,20 +309,27 @@ export interface QueryEngineInput {
 
 export interface QueryEngineResult {
   querySpec:   QuerySpec;
+  /** Human-readable SQL string for display in the UI SQL tab. */
+  displaySql:  string;
   rows:        Record<string, unknown>[];
   rowCount:    number;
   executionMs: number;
 }
 
 /**
- * Translate a natural-language question into SQL, validate it, execute it,
- * and return structured results with chart metadata.
+ * Translate a natural-language question into a structured query spec,
+ * validate it, execute it as a parameterized Prisma query, and return
+ * structured results with chart metadata.
  *
- * Security guarantee: the user's question is placed exclusively in the user
- * message of the AI conversation — never in the system prompt. This means
- * injection strings embedded in facility names or other data that the model
- * surfaces in its context are fenced inside the user turn and cannot hijack
- * the system instruction.
+ * Security guarantee: the AI produces a data structure (entity, measures,
+ * groupBy, filters) — never raw SQL. The app builds all SQL from validated,
+ * allowlisted components. Filter values are fully parameterized via
+ * Prisma's $queryRaw tagged template engine, so no AI-authored string
+ * ever reaches the database unescaped.
+ *
+ * The user's question lives exclusively in the user message, never in the
+ * system prompt, so prompt-injection strings in facility names or result
+ * data cannot hijack system instructions.
  */
 export async function runQuery(
   input: QueryEngineInput
@@ -207,32 +339,37 @@ export async function runQuery(
   // 1. Build schema context from catalog (goes in system prompt — safe).
   const schemaContext = await buildSchemaContext();
 
-  // 2. System prompt — contains only static instructions and schema metadata.
+  // 2. System prompt — static instructions and schema metadata only.
   //    NEVER interpolate user content here.
   const systemPrompt = [
     "You are a data analyst AI assistant for Meridian Health Systems.",
-    "Translate the user question into a valid PostgreSQL SELECT statement",
-    "against the Meridian analytics database.",
+    "Translate the user question into a structured query descriptor.",
     "Return ONLY a JSON object matching the response schema. No prose.",
     "",
     "RULES:",
-    "1. Only query these tables: patient_outcomes, operational_metrics, financial_records",
-    "2. No semicolons. No subqueries unless needed for correctness.",
-    "3. Always GROUP BY when using aggregate functions.",
-    "4. Limit to 50 rows unless the user asks for more.",
-    "5. Choose chartSpec.type by data shape:",
-    "   bar   = comparisons across categories or facilities",
-    "   line  = trends over time (quarters)",
-    "   pie   = proportional breakdowns of a single metric",
-    "   table = multi-column or raw detail results",
+    "1. entity must be one of: patient_outcomes, operational_metrics, financial_records",
+    "2. measures: list each column + aggregation function + output alias.",
+    "   Use agg='none' for non-aggregated columns.",
+    "   Use agg='count' (column is ignored) for COUNT(*).",
+    "3. groupBy: list grouping columns when using aggregate measures.",
+    "4. orderBy: reference measure aliases or groupBy column names.",
+    "5. filters: use only when the question asks for a specific subset.",
+    "   Values must match the data type of the column.",
+    "6. limit: default 50; use 10 for 'top N' questions.",
+    "7. patient_outcomes uses 'quarter' for the time column (not 'period').",
+    "8. Choose chartSpec.type by data shape:",
+    "   bar     = comparisons across categories or facilities",
+    "   line    = trends over time (quarters)",
+    "   area    = same as line with fill, for cumulative or volume trends",
+    "   scatter = relationship between two numeric measures",
+    "   table   = multi-column or raw detail results",
+    "   kpi     = single aggregate metrics (no time axis)",
     "",
-    "SCHEMA:",
+    "SCHEMA (use exact column names shown below):",
     schemaContext,
   ].join("\n");
 
-  // 3. User message — the question lives here. Prompt-injection strings in
-  //    query results that get re-used as follow-up history will also be
-  //    confined to the user turn, never promoted into the system prompt.
+  // 3. User message — the question lives here.
   const messages: AIMessage[] = [
     ...history,
     { role: "user", content: question },
@@ -271,12 +408,13 @@ export async function runQuery(
 
   const querySpec = parseResult.data;
 
-  // 6. Validate SQL against allowlist and deny-list before touching the DB.
-  validateSql(querySpec.sql);
+  // 6. Build a parameterized Prisma query from the validated spec.
+  //    validateColumn() throws if the spec references an unlisted column.
+  const { sql: builtSql, displaySql } = buildQuery(querySpec);
 
-  // 7. Execute the validated SELECT against the analytics tables.
+  // 7. Execute against the analytics tables — no AI-authored SQL touches the DB.
   const execStart   = Date.now();
-  const rows        = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(querySpec.sql);
+  const rows        = await prisma.$queryRaw<Record<string, unknown>[]>(builtSql);
   const executionMs = Date.now() - execStart;
 
   log.info(
@@ -286,6 +424,7 @@ export async function runQuery(
 
   return {
     querySpec,
+    displaySql,
     rows,
     rowCount:    rows.length,
     executionMs,

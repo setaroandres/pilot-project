@@ -70,20 +70,17 @@ export function QueryInput({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        onError(
-          (data as { error?: string }).error ??
-            `Request failed (${res.status})`
-        );
+        onError((data as { error?: string }).error ?? "Error running the query");
         return;
       }
 
       const data = await res.json() as {
         conversationId?: string;
         turn: {
-          id:        string;
-          userQuery: string;
+          id:         string;
+          userQuery:  string;
+          displaySql: string;
           querySpec: {
-            sql:         string;
             explanation: string;
             chartSpec?: { type: string; xAxis?: string; yAxis?: string; title?: string };
           };
@@ -99,7 +96,7 @@ export function QueryInput({
           turnId:      data.turn.id,
           userQuery:   data.turn.userQuery,
           explanation: data.turn.querySpec.explanation,
-          sql:         data.turn.querySpec.sql,
+          sql:         data.turn.displaySql,
           rows:        data.turn.rows,
           rowCount:    data.turn.rowCount,
           executionMs: data.turn.executionMs,

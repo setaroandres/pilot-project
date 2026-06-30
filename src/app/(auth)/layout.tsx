@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Toaster } from "@upstart13-com/aiden-ui";
 import { brand } from "@/config/brand";
 import { authValueProps } from "@/config/constants";
 
@@ -8,6 +9,7 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
+    <>
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Left panel — brand */}
       <div className="bg-foreground text-background relative hidden flex-col justify-between overflow-hidden p-12 lg:flex">
@@ -69,5 +71,7 @@ export default function AuthLayout({
         </div>
       </div>
     </div>
+    <Toaster richColors />
+    </>
   );
 }
