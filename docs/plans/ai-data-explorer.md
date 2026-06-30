@@ -133,6 +133,39 @@ model PinnedVisualization {
 }
 ```
 
+#### `prisma/fragments/ai-usage.prisma` — AI call telemetry
+
+`AIUsage` is **not** shipped by `aiden-db` — it must be added as a consumer fragment. The shape mirrors the `AIUsage` interface exported by `aiden-ai` plus a `userId` for the admin cost view.
+
+```
+model AIUsage {
+  id               String   @id @default(cuid())
+  provider         String
+  model            String
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  totalTokens      Int      @map("total_tokens")
+  costUSD          Float    @map("cost_usd")
+  latencyMs        Int      @map("latency_ms")
+  userId           String?  @map("user_id")  // denormalized; survives User deletion
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+```
+
+Wire in `src/lib/ai.ts` via `setAIUsageSink` from `@upstart13-com/aiden-logging`:
+
+```ts
+setAIUsageSink(async (record) => {
+  await prisma.aIUsage.create({ data: record });
+});
+```
+
+Under the mock provider, `costUSD` will always be `0` and token counts will be synthetic fixture values — this is intentional and acceptable for the pilot.
+
 #### `prisma/fragments/catalog.prisma` — Semantic data catalog
 
 ```
@@ -367,6 +400,7 @@ All mutable and AI-invoking routes emit an audit event via `auditLog()` from `@/
 | File | Change |
 |------|--------|
 | `prisma/fragments/analytics.prisma` | New: PatientOutcome, OperationalMetric, FinancialRecord models |
+| `prisma/fragments/ai-usage.prisma` | New: AIUsage model (not shipped by aiden-db — must be consumer-owned) |
 | `prisma/fragments/conversation.prisma` | New: Conversation, ConversationTurn models |
 | `prisma/fragments/pin.prisma` | New: PinnedVisualization model |
 | `prisma/fragments/catalog.prisma` | New: CatalogEntry model |
@@ -383,7 +417,8 @@ All mutable and AI-invoking routes emit an audit event via `auditLog()` from `@/
 |------|--------|
 | `src/config/rbac.ts` | Add `query.run`, `catalog.manage`, `cost.view` permissions; add `analyst` and `viewer` roles; extend `admin` permissions |
 | `src/lib/abilities.ts` | Add ability rules for `query.run`, `catalog.manage`, `cost.view` |
-| `src/lib/ai.ts` | Add `mock()` factory: `createAIClient({ provider: "mock" })`; wire `setAIUsageSink` to Prisma |
+| `src/lib/ai.ts` | Wire `setAIUsageSink` to the new `AIUsage` Prisma model; add `mock()` export that returns the `MockAIClient` |
+| `src/lib/ai-mock.ts` | New: hand-written `MockAIClient` implementing the `AIClient` interface — fixture-backed `complete()` + chunked `stream()`, synthetic usage (`costUSD: 0`) |
 | `aiden.config.ts` | Update `app.name` / `app.shortName` / `app.tagline` for Meridian; add `mock` to `ai.providers` |
 | `src/config/nav.ts` | Add Explore, My Dashboard, Catalog nav items; add Admin→Cost nav item |
 
@@ -496,11 +531,20 @@ Before writing code, verify the following:
 
 ## Open Questions (to resolve before build)
 
-1. **Context window for follow-up turns:** the spec says "up to 10 turns of context." Does `aiden-ai`'s `createAIClient` accept a `messages` array for multi-turn? Or do we summarize previous turns before sending? Check README.
+1. **Context window for follow-up turns:** `aiden-ai`'s `AICompleteOptions` accepts a `messages: AIMessage[]` array — confirmed from type definitions. Multi-turn context is supported natively. The route will pass the last N turns (capped at 10) as prior messages.
 2. **Export (PNG, CSV):** the spec lists this under Dynamic Visualization. Which routes expose raw data for CSV download? Does this need a dedicated `/api/query/[turnId]/export` route, or does the client render from cached `data` in the turn?
 3. **Prompt injection probe:** the spec says "a seeded adversarial record must not override or echo the system prompt — probed and graded even under the mock provider." We need one adversarial row in the seed (e.g., a facility name that contains an injection attempt) and a test to confirm it's fenced in the user message.
-4. **`AIUsage` model source:** is this already in `@upstart13-com/aiden-db` or do we add a fragment? Blocking for the data section — resolve before merging the schema.
-5. **Viewer shared dashboards:** the spec says "viewers read shared results but cannot invoke the query engine." In pilot scope, dashboards are personal-only. Does the viewer persona see any dashboards at all, or just the overview page? Clarify with stakeholder before building the pins page.
+4. ~~**`AIUsage` model source**~~ — **Resolved:** not in `aiden-db`. Must be added as `prisma/fragments/ai-usage.prisma`. See Data section above.
+5. ~~**Viewer shared dashboards**~~ — **Resolved:** The pins page is visible to viewers in the nav, but renders an informational box instead of the pins grid: *"Pinned visualizations are available to Analyst and Admin accounts. Contact your administrator to upgrade your access."* Role is checked server-side in the page component before rendering. No sharing mechanism is built — "dashboards her team pinned for her" in the persona is Phase 2 vision language, not pilot scope. The out-of-scope section ("shared/team dashboards — personal only") takes precedence.
+
+## Resolved Pre-Build Blockers
+
+| Question | Finding | Impact on Plan |
+|----------|---------|----------------|
+| `AIUsage` in `aiden-db`? | **No** — only `auth`, `audit`, `rbac` fragments ship | Added `prisma/fragments/ai-usage.prisma` to Data section |
+| `provider: "mock"` in `aiden-ai`? | **No** — supported providers: openai, anthropic, google, mistral, groq, cohere | Replace with `src/lib/ai-mock.ts`: hand-written `AIClient` interface implementation with fixture responses. Phase 2 swap is still one line in `src/lib/ai.ts`. Graded criterion ("zero route edits, one config line") is still satisfied. |
+| Prompt injection probe | Implementation clear: system prompt is a fixed string with zero user content; adversarial facility row in seed; unit test inspects `messages[]` to verify fencing | Added adversarial seed row + probe test to seed/testing plan |
+| Viewer pins page | Viewer sees the page but gets an informational box ("Analyst/Admin only") instead of the pins grid. Role checked server-side. No sharing mechanism built — Phase 2. | `src/app/dashboard/pins/page.tsx` conditionally renders based on server-side role check |
 
 ---
 

@@ -4,24 +4,30 @@ import { ROLES } from "@/config/rbac";
 
 /**
  * App-wide RBAC rules. Add new actions here; pair role-based rules
- * (`{ roles: [...] }`) with predicate rules (`(session, resource) => boolean`)
+ * ({ roles: [...] }) with predicate rules ((session, resource) => boolean)
  * for resource-level checks.
  *
- * Role and permission strings come from `@/config/rbac` — the single
- * source of truth shared with `prisma/seed.ts` — so renaming a role
- * touches one place and is checked at compile time.
+ * Role and permission strings come from @/config/rbac so renaming a
+ * role touches one place and is checked at compile time.
  */
-const ADMIN = ROLES.find((r) => r.name === "admin")!.name;
+const ADMIN   = ROLES.find((r) => r.name === "admin")!.name;
+const ANALYST = ROLES.find((r) => r.name === "analyst")!.name;
 
 export const abilities = defineAbilities({
   rules: {
-    "audit.read": { roles: [ADMIN] },
-    "audit.export": { roles: [ADMIN] },
-    "users.manage": { roles: [ADMIN] },
-    // Example resource-level rule. Uncomment + add a Post model fragment
-    // when you scaffold one.
-    //
-    // "post.delete": (session, post: { userId: string }) =>
-    //   post.userId === session.user.id,
+    // Existing admin-only rules
+    "audit.read":     { roles: [ADMIN] },
+    "audit.export":   { roles: [ADMIN] },
+    "users.manage":   { roles: [ADMIN] },
+
+    // AI Data Explorer: query.run gates the NL query engine.
+    // viewer + member are excluded; hitting a guarded route returns 403.
+    "query.run":      { roles: [ADMIN, ANALYST] },
+
+    // catalog.manage gates PATCH /api/catalog/[id] (admin curations only).
+    "catalog.manage": { roles: [ADMIN] },
+
+    // cost.view gates GET /api/admin/cost (AIUsage telemetry).
+    "cost.view":      { roles: [ADMIN] },
   },
 });

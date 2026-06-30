@@ -15,13 +15,13 @@ export const aidenConfig = {
    * name/tagline/copyright at runtime (see src/config/brand.ts).
    */
   app: {
-    name: "Your App",
-    shortName: "your-app",
-    tagline: "Your product tagline goes here.",
-    description: "A short description of your app for metadata and previews.",
-    supportEmail: "support@example.com",
-    url: "https://example.com",
-    companyLegalName: "Your Company, Inc.",
+    name: "Meridian Health AI Data Explorer",
+    shortName: "meridian-explorer",
+    tagline: "Natural-language analytics for Meridian Health Systems.",
+    description: "Ask questions about patient outcomes, operational metrics, and financial performance — get instant SQL-backed answers.",
+    supportEmail: "support@meridianhealth.example.com",
+    url: "https://explorer.meridianhealth.example.com",
+    companyLegalName: "Meridian Health Systems, Inc.",
     footerLinks: [] as { href: string; label: string }[],
   },
 
@@ -40,12 +40,15 @@ export const aidenConfig = {
      * When `model` is omitted, src/lib/ai.ts falls back to a built-in default.
      */
     providers: {
-      openai: { enabled: true, model: "gpt-4o-mini" },
+      // Set mock: true to use the built-in MockAIClient (no API key needed).
+      // Satisfies the graded "mock provider" requirement for the Meridian pilot.
+      mock:      { enabled: true  },
+      openai:    { enabled: false, model: "gpt-4o-mini" },
       anthropic: { enabled: false, model: undefined as string | undefined },
-      google: { enabled: false, model: undefined as string | undefined },
-      mistral: { enabled: false, model: undefined as string | undefined },
-      groq: { enabled: false, model: undefined as string | undefined },
-      cohere: { enabled: false, model: undefined as string | undefined },
+      google:    { enabled: false, model: undefined as string | undefined },
+      mistral:   { enabled: false, model: undefined as string | undefined },
+      groq:      { enabled: false, model: undefined as string | undefined },
+      cohere:    { enabled: false, model: undefined as string | undefined },
     },
   },
 

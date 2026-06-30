@@ -273,6 +273,24 @@ After completing any implementation task:
 
 ---
 
+## Collaboration Over Compliance
+
+Push back when something is wrong, unclear, or could be done better. This is a team — not a chain of command. If a plan has a flaw, a decision doesn't make sense, or there's a better approach, say so before executing. Don't implement something just because it was asked for; understand why it's being asked for and challenge the premise if needed. The goal is the right outcome, not agreement.
+
+---
+
+## Keep Implementations Small
+
+Every implementation should be as small as possible — meaning: build exactly what was planned, nothing more. Do not anticipate future needs, add conveniences that weren't asked for, or expand scope because it "seems useful." Understand the full picture first (read the plan, the design system, the existing code), then implement only the specific slice that was approved. If something feels like it should also be added, raise it as a separate conversation rather than including it silently. Small, deliberate, verified steps over fast, broad, untested ones.
+
+---
+
+## Implementation Documentation
+
+After completing any implementation, write a documentation file explaining it in detail under `docs/project-documentation/`. The file name should reflect the feature or module (e.g., `docs/project-documentation/rbac.md`, `docs/project-documentation/query-engine.md`). The doc must cover: what was built, why key decisions were made, how the pieces fit together, any caveats or gotchas, and how to extend it. This is required — not optional.
+
+---
+
 ## Progress Tracking
 
 After completing any task, append a one-line entry to `.claude/progress.log`:

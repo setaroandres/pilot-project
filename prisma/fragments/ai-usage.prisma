@@ -1,0 +1,29 @@
+// AI call telemetry — one row per AI provider call (complete or stream).
+//
+// NOT shipped by @upstart13-com/aiden-db — must be consumer-owned.
+// Wired via setAIUsageSink() in src/lib/ai.ts so every call through
+// createAIClient (or MockAIClient) records here automatically.
+//
+// userId is denormalized (plain String?, no FK) so cost history survives
+// User deletion — same pattern as AuditLog. This is intentional.
+//
+// Under the mock provider: costUSD is always 0, token counts are synthetic
+// fixture values. These rows are non-reversible — they persist after a
+// feature rollback. Accepted.
+
+model AIUsage {
+  id               String   @id @default(cuid())
+  provider         String
+  model            String
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  totalTokens      Int      @map("total_tokens")
+  costUSD          Float    @map("cost_usd")
+  latencyMs        Int      @map("latency_ms")
+  userId           String?  @map("user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}

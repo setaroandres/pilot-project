@@ -1,0 +1,27 @@
+// Personal pinned visualizations — user's saved dashboard items.
+//
+// A pin is created from a ConversationTurn: the querySpec, chartSpec, and
+// a snapshot of the result rows at pin time are copied over. The pin is
+// self-contained — it does not reference the turn by FK so it survives
+// conversation deletion.
+//
+// Only analyst and admin roles can create pins (assertCan("query.run") gate
+// on POST /api/pins). Viewer role sees an informational message on the pins
+// page instead of this data.
+//
+// Cascade: User deleted → all their pins deleted.
+
+model PinnedVisualization {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  title          String
+  querySpec      Json     @map("query_spec")
+  chartSpec      Json     @map("chart_spec")
+  resultSnapshot Json?    @map("result_snapshot") // cached result rows at pin time
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("pinned_visualizations")
+}

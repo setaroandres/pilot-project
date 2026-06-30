@@ -13,6 +13,206 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── prisma\fragments\ai-usage.prisma ───
+// AI call telemetry — one row per AI provider call (complete or stream).
+//
+// NOT shipped by @upstart13-com/aiden-db — must be consumer-owned.
+// Wired via setAIUsageSink() in src/lib/ai.ts so every call through
+// createAIClient (or MockAIClient) records here automatically.
+//
+// userId is denormalized (plain String?, no FK) so cost history survives
+// User deletion — same pattern as AuditLog. This is intentional.
+//
+// Under the mock provider: costUSD is always 0, token counts are synthetic
+// fixture values. These rows are non-reversible — they persist after a
+// feature rollback. Accepted.
+
+model AIUsage {
+  id               String   @id @default(cuid())
+  provider         String
+  model            String
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  totalTokens      Int      @map("total_tokens")
+  costUSD          Float    @map("cost_usd")
+  latencyMs        Int      @map("latency_ms")
+  userId           String?  @map("user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+
+// ─── prisma\fragments\analytics.prisma ───
+// Analytics seed data — three domains for the Meridian Health Systems pilot.
+//
+// These are read-only reference tables seeded from prisma/seed.ts.
+// They have no userId foreign key — they are shared reference data, not
+// user-owned resources. No onDelete cascade is needed or appropriate here.
+//
+// In Phase 2 these tables are replaced by a Snowflake adapter that satisfies
+// the same Prisma query shapes — zero route edits required.
+
+model PatientOutcome {
+  id                String   @id @default(cuid())
+  facility          String
+  quarter           String   // e.g. "2024-Q1"
+  region            String
+  satisfactionScore Float    @map("satisfaction_score")
+  readmissionRate   Float    @map("readmission_rate")
+  avgLengthOfStay   Float    @map("avg_length_of_stay")
+  triageProtocol    String?  @map("triage_protocol") // "new" | "legacy" | null
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([quarter])
+  @@index([region])
+  @@map("patient_outcomes")
+}
+
+model OperationalMetric {
+  id                 String   @id @default(cuid())
+  facility           String
+  period             String   // e.g. "2024-Q1"
+  region             String
+  staffingEfficiency Float    @map("staffing_efficiency")
+  bedOccupancyRate   Float    @map("bed_occupancy_rate")
+  erWaitMinutes      Int      @map("er_wait_minutes")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([period])
+  @@index([region])
+  @@map("operational_metrics")
+}
+
+model FinancialRecord {
+  id                String   @id @default(cuid())
+  facility          String
+  period            String   // e.g. "2024-Q1"
+  region            String
+  payer             String   // "Medicare" | "Medicaid" | "BlueCross" | "Aetna" | "UnitedHealth"
+  procedureCode     String   @map("procedure_code")
+  revenue           Float
+  reimbursementRate Float    @map("reimbursement_rate")
+  claimsCount       Int      @map("claims_count")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([payer])
+  @@index([period])
+  @@index([procedureCode])
+  @@map("financial_records")
+}
+
+// ─── prisma\fragments\catalog.prisma ───
+// Semantic data catalog — business definitions for every pilot table and column.
+//
+// Seeded in prisma/seed.ts with ~60 entries covering all three analytics domains.
+// Admins can override any entry via PATCH /api/catalog/[id] (assertCan("catalog.manage")).
+// All authenticated users can read the catalog (no role gate on GET routes).
+//
+// columnName is nullable: null means the entry describes the table as a whole
+// rather than a specific column.
+//
+// In Phase 2 this is replaced by an embeddings-backed semantic search store.
+// The seeded catalog serves as the source of "did you mean?" suggestions
+// in the NL query engine for the pilot.
+
+model CatalogEntry {
+  id            String   @id @default(cuid())
+  domain        String   // "patient_outcomes" | "operational" | "financial"
+  tableName     String   @map("table_name")
+  columnName    String?  @map("column_name") // null = table-level entry
+  businessLabel String   @map("business_label")
+  definition    String   @db.Text
+  caveats       String?  @db.Text
+  lineage       String?  @db.Text // where the metric comes from / how it's calculated
+  isOverride    Boolean  @default(false) @map("is_override") // true = human-curated admin edit
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([domain, tableName, columnName])
+  @@index([domain])
+  @@map("catalog_entries")
+}
+
+// ─── prisma\fragments\conversation.prisma ───
+// Conversation sessions and their turns — the NL query history per user.
+//
+// One Conversation groups multiple ConversationTurns (Q&A pairs).
+// The route passes the last N turns as prior messages to the AI client
+// to support follow-up questions (up to 10 turns of context).
+//
+// Both models cascade-delete when the parent is removed:
+//   - Conversation deleted → all its turns deleted (ConversationTurn.onDelete: Cascade)
+//   - User deleted → all their conversations deleted (Conversation.onDelete: Cascade)
+//     which in turn cascade-deletes all turns via the above.
+
+model Conversation {
+  id        String             @id @default(cuid())
+  userId    String             @map("user_id")
+  title     String             @default("New Conversation")
+  domain    String?            // "patient_outcomes" | "operational" | "financial" | null (multi-domain)
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  turns ConversationTurn[]
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model ConversationTurn {
+  id               String   @id @default(cuid())
+  conversationId   String   @map("conversation_id")
+  userId           String   @map("user_id")
+  userQuery        String   @map("user_query")       @db.Text
+  querySpec        Json?    @map("query_spec")       // AI-generated, Zod-validated QuerySpec
+  chartSpec        Json?    @map("chart_spec")       // { chartType, x, y, series }
+  resultMetadata   Json?    @map("result_metadata")  // { rowCount, executionMs } — never raw data
+  narrativeSummary String?  @map("narrative_summary") @db.Text
+  error            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([userId])
+  @@map("conversation_turns")
+}
+
+// ─── prisma\fragments\pin.prisma ───
+// Personal pinned visualizations — user's saved dashboard items.
+//
+// A pin is created from a ConversationTurn: the querySpec, chartSpec, and
+// a snapshot of the result rows at pin time are copied over. The pin is
+// self-contained — it does not reference the turn by FK so it survives
+// conversation deletion.
+//
+// Only analyst and admin roles can create pins (assertCan("query.run") gate
+// on POST /api/pins). Viewer role sees an informational message on the pins
+// page instead of this data.
+//
+// Cascade: User deleted → all their pins deleted.
+
+model PinnedVisualization {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  title          String
+  querySpec      Json     @map("query_spec")
+  chartSpec      Json     @map("chart_spec")
+  resultSnapshot Json?    @map("result_snapshot") // cached result rows at pin time
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("pinned_visualizations")
+}
+
 // ─── prisma\fragments\user.prisma ───
 // User model — owned by the consumer because Prisma requires it to
 // declare every back-relation it participates in. Add your business
@@ -28,9 +228,11 @@ model User {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  accounts Account[]
-  sessions Session[]
-  roles    Role[]    @relation("UserRoles")
+  accounts             Account[]
+  sessions             Session[]
+  roles                Role[]               @relation("UserRoles")
+  conversations        Conversation[]
+  pinnedVisualizations PinnedVisualization[]
 
   @@map("users")
 }

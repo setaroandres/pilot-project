@@ -12,11 +12,35 @@ import type { DashboardNavItem } from "@upstart13-com/aiden-ui";
  */
 
 export const primaryNavItems: DashboardNavItem[] = [
+  // {
+  //   href: "/dashboard",
+  //   label: "Overview",
+  //   icon: "LayoutDashboard",
+  //   exact: true,
+  // },
   {
-    href: "/dashboard",
-    label: "Overview",
-    icon: "LayoutDashboard",
-    exact: true,
+    href: "/dashboard/query",
+    label: "Query",
+    icon: "Sparkles",
+    exact: false,
+  },
+  {
+    href: "/dashboard/conversations",
+    label: "Conversations",
+    icon: "MessageSquare",
+    exact: false,
+  },
+  {
+    href: "/dashboard/pins",
+    label: "Pins",
+    icon: "Pin",
+    exact: false,
+  },
+  {
+    href: "/dashboard/catalog",
+    label: "Catalog",
+    icon: "BookOpen",
+    exact: false,
   },
 ];
 
@@ -31,5 +55,12 @@ export const adminUsersNavItem: DashboardNavItem = {
   href: "/admin/users",
   label: "Users",
   icon: "Users",
+  exact: false,
+};
+
+export const adminCostNavItem: DashboardNavItem = {
+  href: "/admin/cost",
+  label: "AI Cost",
+  icon: "DollarSign",
   exact: false,
 };

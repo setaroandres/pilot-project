@@ -1,0 +1,44 @@
+// Conversation sessions and their turns — the NL query history per user.
+//
+// One Conversation groups multiple ConversationTurns (Q&A pairs).
+// The route passes the last N turns as prior messages to the AI client
+// to support follow-up questions (up to 10 turns of context).
+//
+// Both models cascade-delete when the parent is removed:
+//   - Conversation deleted → all its turns deleted (ConversationTurn.onDelete: Cascade)
+//   - User deleted → all their conversations deleted (Conversation.onDelete: Cascade)
+//     which in turn cascade-deletes all turns via the above.
+
+model Conversation {
+  id        String             @id @default(cuid())
+  userId    String             @map("user_id")
+  title     String             @default("New Conversation")
+  domain    String?            // "patient_outcomes" | "operational" | "financial" | null (multi-domain)
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  turns ConversationTurn[]
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model ConversationTurn {
+  id               String   @id @default(cuid())
+  conversationId   String   @map("conversation_id")
+  userId           String   @map("user_id")
+  userQuery        String   @map("user_query")       @db.Text
+  querySpec        Json?    @map("query_spec")       // AI-generated, Zod-validated QuerySpec
+  chartSpec        Json?    @map("chart_spec")       // { chartType, x, y, series }
+  resultMetadata   Json?    @map("result_metadata")  // { rowCount, executionMs } — never raw data
+  narrativeSummary String?  @map("narrative_summary") @db.Text
+  error            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([userId])
+  @@map("conversation_turns")
+}

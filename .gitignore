@@ -49,3 +49,6 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# proyect documentation
+/docs/project-documentation

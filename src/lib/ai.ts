@@ -1,20 +1,43 @@
+import "server-only";
 /**
- * Lazy AI client factories — call `ai.openai()` etc. only when needed
- * so SDKs you don't have installed never fault. Toggle providers and
- * pin a default `model` per provider in aiden.config.ts, then install
- * the corresponding SDK.
+ * Lazy AI client factories.
  *
- * Each factory resolves its model from `aiden.config.ts`
- * (`ai.providers[x].model`) and falls back to a built-in default only
- * when that field is unset. Pass an explicit `model` arg to override.
+ * Call `ai.mock()`, `ai.openai()`, etc. only when needed so provider SDKs
+ * you have not installed never fault. Toggle providers in aiden.config.ts.
+ *
+ * Side effect on import: registers the AIUsage database sink so every AI
+ * call (mock or real) persists a row to the ai_usage table automatically.
  */
 
 import { createAIClient, type AIClient } from "@upstart13-com/aiden-ai";
-import { aidenConfig } from "@/../aiden.config";
+import { setAIUsageSink }                from "@upstart13-com/aiden-logging";
+import { aidenConfig }                   from "@/../aiden.config";
+import { prisma }                        from "@/lib/prisma";
+import { MockAIClient }                  from "@/lib/ai-mock";
+
+// ---------------------------------------------------------------------------
+// AI usage sink — persists one row per AI call to ai_usage.
+// Registered once at module load; fired automatically by every adapter
+// (including MockAIClient) via reportUsage() / recordAIUsage().
+// ---------------------------------------------------------------------------
+
+setAIUsageSink(async (record) => {
+  await prisma.aIUsage.create({ data: record });
+});
+
+// ---------------------------------------------------------------------------
+// Provider factories
+// ---------------------------------------------------------------------------
 
 const providerModels = aidenConfig.ai.providers;
 
 export const ai = {
+  /**
+   * Built-in mock client — no API key, zero cost.
+   * Enabled via `aiden.config.ts` ai.providers.mock.enabled.
+   */
+  mock: (): Promise<AIClient> => Promise.resolve(new MockAIClient()),
+
   openai: (
     model = providerModels.openai.model ?? "gpt-4o-mini"
   ): Promise<AIClient> =>
@@ -23,6 +46,7 @@ export const ai = {
       model,
       apiKey: process.env.OPENAI_API_KEY,
     }),
+
   anthropic: (
     model = providerModels.anthropic.model ?? "claude-haiku-4-5"
   ): Promise<AIClient> =>
@@ -31,6 +55,7 @@ export const ai = {
       model,
       apiKey: process.env.ANTHROPIC_API_KEY,
     }),
+
   google: (
     model = providerModels.google.model ?? "gemini-2.5-flash"
   ): Promise<AIClient> =>
@@ -39,6 +64,7 @@ export const ai = {
       model,
       apiKey: process.env.GOOGLE_API_KEY,
     }),
+
   mistral: (
     model = providerModels.mistral.model ?? "mistral-small-latest"
   ): Promise<AIClient> =>
@@ -47,6 +73,7 @@ export const ai = {
       model,
       apiKey: process.env.MISTRAL_API_KEY,
     }),
+
   groq: (
     model = providerModels.groq.model ?? "llama-3.3-70b-versatile"
   ): Promise<AIClient> =>
@@ -55,6 +82,7 @@ export const ai = {
       model,
       apiKey: process.env.GROQ_API_KEY,
     }),
+
   cohere: (
     model = providerModels.cohere.model ?? "command-r"
   ): Promise<AIClient> =>

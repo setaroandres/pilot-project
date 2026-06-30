@@ -1,0 +1,14 @@
+[2026-06-30 13:56] completed feat(schema): add Prisma fragments for AI Data Explorer — analytics, ai-usage, conversation, pin, catalog models + user back-relations; prisma:merge clean
+[2026-06-30 14:06] completed feat(rbac): add analyst/viewer roles and query.run, catalog.manage, cost.view permissions; tsc clean
+[2026-06-30 15:30] completed feat(seed): demo users (admin/analyst×2/viewer), 80 patient outcomes, 80 operational metrics, 2000 financial records, 25 catalog entries; seed clean
+[2026-06-30 16:00] completed feat(ai-mock): MockAIClient implementing AIClient interface; usage sink wired in ai.ts; tsc clean
+[2026-06-30 16:30] completed feat(query-engine): NL->SQL engine with PHI deny-list, entity allowlist, SQL validation, catalog context builder; tsc clean
+[2026-06-30 17:15] completed feat(api-routes): 9 routes — conversations CRUD, pins CRUD, catalog browse+edit, admin cost; tsc clean
+[2026-06-30 18:00] completed feat(ui): 5 pages (query, conversations, pins, catalog, admin-cost) + 7 components + Alert/Select primitives + nav entries; tsc/lint clean on Windows
+[2026-06-30 18:15] completed fix(lint): no-this-alias in ai-mock.ts (replaced self.provider/model with constants); unused _ctx param in catalog/route.ts; lint clean
+[2026-06-30 18:30] completed fix(logger): pino-pretty missing install crashed all API routes; wrapped require.resolve in try/catch; recorded in .claude/fixes/pino.md
+[2026-06-30 18:30] completed fix(nav): Pin/BookOpen/DollarSign icons not in defaultNavIconRegistry; extended registry in dashboard layout
+[2026-06-30 19:00] completed fix(logger): Turbopack rewrites require.resolve path for pino-pretty; added isRealPath guard; logs fall back to NDJSON in Turbopack dev
+[2026-06-30 19:30] completed feat(overview): replaced scaffold landing page with redirect to /login; rewrote Overview with app description, feature cards, highlights
+[2026-06-30 19:30] completed docs(test-guide): comprehensive test guide covering all pages, demo accounts, role matrix, API smoke tests, known limitations
+[2026-06-30 17:57] completed fix(ai-mock): add explicit patient/facility/readmission keywords; generic fallback now returns cross-domain summary — prevents all unmatched queries returning identical patient satisfaction chart

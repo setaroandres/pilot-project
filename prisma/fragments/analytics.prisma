@@ -1,0 +1,60 @@
+// Analytics seed data — three domains for the Meridian Health Systems pilot.
+//
+// These are read-only reference tables seeded from prisma/seed.ts.
+// They have no userId foreign key — they are shared reference data, not
+// user-owned resources. No onDelete cascade is needed or appropriate here.
+//
+// In Phase 2 these tables are replaced by a Snowflake adapter that satisfies
+// the same Prisma query shapes — zero route edits required.
+
+model PatientOutcome {
+  id                String   @id @default(cuid())
+  facility          String
+  quarter           String   // e.g. "2024-Q1"
+  region            String
+  satisfactionScore Float    @map("satisfaction_score")
+  readmissionRate   Float    @map("readmission_rate")
+  avgLengthOfStay   Float    @map("avg_length_of_stay")
+  triageProtocol    String?  @map("triage_protocol") // "new" | "legacy" | null
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([quarter])
+  @@index([region])
+  @@map("patient_outcomes")
+}
+
+model OperationalMetric {
+  id                 String   @id @default(cuid())
+  facility           String
+  period             String   // e.g. "2024-Q1"
+  region             String
+  staffingEfficiency Float    @map("staffing_efficiency")
+  bedOccupancyRate   Float    @map("bed_occupancy_rate")
+  erWaitMinutes      Int      @map("er_wait_minutes")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([period])
+  @@index([region])
+  @@map("operational_metrics")
+}
+
+model FinancialRecord {
+  id                String   @id @default(cuid())
+  facility          String
+  period            String   // e.g. "2024-Q1"
+  region            String
+  payer             String   // "Medicare" | "Medicaid" | "BlueCross" | "Aetna" | "UnitedHealth"
+  procedureCode     String   @map("procedure_code")
+  revenue           Float
+  reimbursementRate Float    @map("reimbursement_rate")
+  claimsCount       Int      @map("claims_count")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([facility])
+  @@index([payer])
+  @@index([period])
+  @@index([procedureCode])
+  @@map("financial_records")
+}

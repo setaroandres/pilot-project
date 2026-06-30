@@ -1,0 +1,30 @@
+// Semantic data catalog — business definitions for every pilot table and column.
+//
+// Seeded in prisma/seed.ts with ~60 entries covering all three analytics domains.
+// Admins can override any entry via PATCH /api/catalog/[id] (assertCan("catalog.manage")).
+// All authenticated users can read the catalog (no role gate on GET routes).
+//
+// columnName is nullable: null means the entry describes the table as a whole
+// rather than a specific column.
+//
+// In Phase 2 this is replaced by an embeddings-backed semantic search store.
+// The seeded catalog serves as the source of "did you mean?" suggestions
+// in the NL query engine for the pilot.
+
+model CatalogEntry {
+  id            String   @id @default(cuid())
+  domain        String   // "patient_outcomes" | "operational" | "financial"
+  tableName     String   @map("table_name")
+  columnName    String?  @map("column_name") // null = table-level entry
+  businessLabel String   @map("business_label")
+  definition    String   @db.Text
+  caveats       String?  @db.Text
+  lineage       String?  @db.Text // where the metric comes from / how it's calculated
+  isOverride    Boolean  @default(false) @map("is_override") // true = human-curated admin edit
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([domain, tableName, columnName])
+  @@index([domain])
+  @@map("catalog_entries")
+}
