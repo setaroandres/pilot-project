@@ -6,7 +6,9 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ConversationCard } from "@/components/conversations/conversation-card";
 
-export const metadata = { title: "Conversations | AI Data Explorer" };
+import { conversationsPageMetadata } from "@/config/constants";
+
+export const metadata = conversationsPageMetadata;
 
 export default async function ConversationsPage() {
   const session = await auth();

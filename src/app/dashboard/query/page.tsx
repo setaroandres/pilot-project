@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { abilities } from "@/lib/abilities";
 import { QueryPageClient } from "./query-page-client";
+import { queryPageMetadata } from "@/config/constants";
 
-export const metadata = { title: "Query | AI Data Explorer" };
+export const metadata = queryPageMetadata;
 
 interface PageProps {
   searchParams: Promise<{ conversationId?: string }>;

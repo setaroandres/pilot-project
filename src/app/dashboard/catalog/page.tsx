@@ -4,7 +4,9 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CatalogTable } from "@/components/catalog/catalog-table";
 
-export const metadata = { title: "Catalog | AI Data Explorer" };
+import { catalogPageMetadata } from "@/config/constants";
+
+export const metadata = catalogPageMetadata;
 
 export default async function CatalogPage() {
   const session = await auth();

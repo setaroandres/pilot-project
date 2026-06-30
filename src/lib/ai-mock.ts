@@ -248,7 +248,7 @@ export class MockAIClient implements AIClient {
           parsed,
           usage,
           finishReason: "stop",
-          model:        self.model,
+          model:        MOCK_MODEL,
         };
 
         return cached;

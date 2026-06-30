@@ -5,7 +5,9 @@ import { abilities } from "@/lib/abilities";
 import { prisma } from "@/lib/prisma";
 import { CostTable } from "@/components/admin/cost-table";
 
-export const metadata = { title: "AI Cost | Admin" };
+import { costPageMetadata } from "@/config/constants";
+
+export const metadata = costPageMetadata;
 
 export default async function AdminCostPage() {
   const session = await auth();

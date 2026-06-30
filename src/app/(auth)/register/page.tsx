@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { RegisterForm } from "@upstart13-com/aiden-auth/components";
+import { registerPageMetadata } from "@/config/constants";
 
-export const metadata: Metadata = { title: "Create Account" };
+export const metadata = registerPageMetadata;
 
 export default function RegisterPage() {
   return (

@@ -8,7 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PinsListClient } from "./pins-list-client";
 
-export const metadata = { title: "Pins | AI Data Explorer" };
+import { pinsPageMetadata } from "@/config/constants";
+
+export const metadata = pinsPageMetadata;
 
 export default async function PinsPage() {
   const session = await auth();

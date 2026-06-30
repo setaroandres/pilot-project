@@ -1,15 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  Sparkles,
-  MessageSquare,
-  Pin,
-  BookOpen,
-  BarChart3,
-  ShieldCheck,
-  Database,
-  ArrowRight,
-} from "lucide-react";
+import { Sparkles, ArrowRight } from "lucide-react";
 import {
   PageHeader,
   Card,
@@ -20,57 +11,9 @@ import {
   Badge,
 } from "@upstart13-com/aiden-ui";
 import { auth } from "@/lib/auth";
+import { dashboardFeatures, dashboardHighlights, overviewPageMetadata } from "@/config/constants";
 
-export const metadata = { title: "Overview | Meridian Health AI Data Explorer" };
-
-const features = [
-  {
-    icon:        Sparkles,
-    title:       "Natural-Language Queries",
-    href:        "/dashboard/query",
-    description: "Ask questions in plain English — the AI translates them into validated SQL and returns results instantly.",
-    badge:       "Core feature",
-  },
-  {
-    icon:        MessageSquare,
-    title:       "Conversation History",
-    href:        "/dashboard/conversations",
-    description: "Every query session is saved. Follow-up questions carry context from the previous turns.",
-    badge:       null as string | null,
-  },
-  {
-    icon:        Pin,
-    title:       "Pinned Visualizations",
-    href:        "/dashboard/pins",
-    description: "Save any query result as a named pin. Charts and data snapshots are stored for quick reference.",
-    badge:       null as string | null,
-  },
-  {
-    icon:        BookOpen,
-    title:       "Data Catalog",
-    href:        "/dashboard/catalog",
-    description: "Browse every table and column exposed to the query engine, with business labels, definitions, and lineage.",
-    badge:       null as string | null,
-  },
-];
-
-const highlights = [
-  {
-    icon:  ShieldCheck,
-    title: "PHI-safe by design",
-    body:  "A deny-list blocks SSN, DOB, MRN, and patient-name columns from reaching the AI. SQL is validated before execution — SELECT-only, no DDL.",
-  },
-  {
-    icon:  Database,
-    title: "Three data domains",
-    body:  "Patient outcomes (readmissions, LOS, satisfaction), operational metrics (bed occupancy, staff ratios, ER wait times), and financial performance (revenue, margins, cost per case).",
-  },
-  {
-    icon:  BarChart3,
-    title: "Role-based access",
-    body:  "Admins and Analysts can run queries and pin results. Viewers see saved pins but cannot query. All actions are audit-logged.",
-  },
-];
+export const metadata = overviewPageMetadata;
 
 export default async function OverviewPage() {
   const session = await auth();
@@ -98,7 +41,7 @@ export default async function OverviewPage() {
             Features
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {features.map((f) => (
+            {dashboardFeatures.map((f) => (
               <Link key={f.href} href={f.href} className="group block">
                 <Card className="h-full rounded-xl transition-shadow hover:shadow-md">
                   <CardHeader className="pb-2">
@@ -140,7 +83,7 @@ export default async function OverviewPage() {
             How it works
           </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {highlights.map((h) => (
+            {dashboardHighlights.map((h) => (
               <Card key={h.title} className="rounded-xl">
                 <CardContent className="px-5 py-4">
                   <h.icon className="text-primary mb-3 size-5" strokeWidth={1.5} />

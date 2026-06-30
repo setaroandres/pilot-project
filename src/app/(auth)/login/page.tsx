@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { LoginForm } from "@upstart13-com/aiden-auth/components";
+import { loginPageMetadata } from "@/config/constants";
 
-export const metadata: Metadata = { title: "Sign In" };
+export const metadata = loginPageMetadata;
 
 export default function LoginPage() {
   return (

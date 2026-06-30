@@ -1,26 +1,6 @@
 import Link from "next/link";
-import { Sparkles, ShieldCheck, Zap } from "lucide-react";
 import { brand } from "@/config/brand";
-
-// TODO: replace these placeholder value props with your product's selling
-// points (or remove the left brand panel entirely). Icons are Lucide.
-const valueProps = [
-  {
-    icon: Sparkles,
-    title: "Your first value prop",
-    body: "Describe a benefit your product delivers. Keep it short and concrete.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Your second value prop",
-    body: "Explain another reason someone should sign up. One sentence is plenty.",
-  },
-  {
-    icon: Zap,
-    title: "Your third value prop",
-    body: "Round out the pitch with a final benefit that sets your product apart.",
-  },
-];
+import { authValueProps } from "@/config/constants";
 
 export default function AuthLayout({
   children,
@@ -52,7 +32,7 @@ export default function AuthLayout({
           </div>
 
           <ul className="space-y-6">
-            {valueProps.map(({ icon: Icon, title, body }) => (
+            {authValueProps.map(({ icon: Icon, title, body }) => (
               <li key={title} className="flex items-start gap-4">
                 <div className="border-background/20 mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-sm border">
                   <Icon className="size-4 opacity-70" strokeWidth={1.5} />
