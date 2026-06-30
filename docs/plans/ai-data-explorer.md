@@ -1,6 +1,5 @@
 # AI Data Explorer — Feature Plan
 
-> **Status:** Draft — awaiting review and approval before any code is written.
 > **Methodology:** Module 13 Plan-Then-Build ritual (seven dimensions).
 > **Author:** Andrés Setaro · asetaro@upstart13.com
 > **Date:** 2026-06-29
