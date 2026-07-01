@@ -24,6 +24,7 @@
     "@prisma/client": "^7.4.2",
     "@upstart13-com/aiden-ai": "^2.0.0",
     "@upstart13-com/aiden-auth": "^2.0.0",
+    "@upstart13-com/aiden-cli": "^2.0.1",
     "@upstart13-com/aiden-db": "^2.0.0",
     "@upstart13-com/aiden-logging": "^2.0.0",
     "@upstart13-com/aiden-realtime": "^2.0.0",
