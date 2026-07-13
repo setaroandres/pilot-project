@@ -1,12 +1,20 @@
 import { z } from "zod";
-import { withAuth, parseRequest, auditLog } from "@/lib/security";
+import { withAuth, assertOwnership, parseRequest, auditLog } from "@/lib/security";
+import {
+  withRateLimit,
+  type AuthHandlerContext,
+} from "@upstart13-com/aiden-security";
 import { createAIStreamResponse }           from "@upstart13-com/aiden-realtime";
-import { ai }                               from "@/lib/ai";
+import { getConfiguredClient }              from "@/lib/ai";
+import { prisma }                           from "@/lib/prisma";
+
+/** Narration is a short 2–3 sentence summary — this is a generous ceiling,
+ *  not a target, so a runaway/looping response can't rack up unbounded
+ *  provider cost on a single call. */
+const NARRATION_MAX_TOKENS = 300;
 
 const Body = z.object({
-  question:  z.string().min(1).max(1_000),
-  rowCount:  z.number().int().min(0),
-  chartType: z.string().min(1).max(50),
+  turnId: z.string().cuid(),
 });
 
 /**
@@ -14,36 +22,68 @@ const Body = z.object({
  *
  * Streams a 2–3 sentence narration of a query result token-by-token over SSE.
  * Called automatically by the NarrationStream component after each query turn
- * completes. Uses the same mock AI client as the query engine so the
- * provider-switch criterion (one config line) applies here too.
+ * completes.
  *
- * Auth: required. Every narration is audited so the full query → narration
- * lifecycle appears in the audit trail.
+ * The client sends only a turnId — every other field (question, row count,
+ * chart type) is read from the caller's own ConversationTurn server-side,
+ * never trusted from the request body. Uses the same shared provider switch
+ * as the query engine (src/lib/ai.ts getConfiguredClient) so the one-line
+ * aiden.config.ts provider swap genuinely covers this route too.
+ *
+ * Auth: required. assertOwnership enforces that a turnId belonging to
+ * another user 404s, same as every other user-data route. Every narration
+ * is audited so the full query → narration lifecycle appears in the audit
+ * trail — metadata only, never the question text or result rows. Rate
+ * limited per-user, same shape as /api/conversations, since this is also
+ * an AI call site.
  */
-export const POST = withAuth(async (req, { session }) => {
-  const { question, rowCount, chartType } = await parseRequest(req, Body);
+export const POST = withAuth(
+  withRateLimit<AuthHandlerContext>(
+    async (req, { session }) => {
+      const { turnId } = await parseRequest(req, Body);
 
-  const client = await ai.mock();
+      const turn = await prisma.conversationTurn.findUnique({
+        where: { id: turnId },
+      });
 
-  const stream = await client.stream({
-    messages: [
-      {
-        role: "user",
-        content: [
-          "Narrate the following query result in 2–3 sentences for a healthcare executive.",
-          `Question: "${question}"`,
-          `Rows returned: ${rowCount}`,
-          `Chart type: ${chartType}`,
-        ].join("\n"),
-      },
-    ],
-  });
+      assertOwnership(turn, session.user.id);
 
-  auditLog({
-    event:    "ai.narrate",
-    actorId:  session.user.id,
-    metadata: { question: question.slice(0, 120), rowCount, chartType },
-  });
+      const question  = turn.userQuery;
+      const chartSpec = turn.chartSpec as { type?: string } | null;
+      const metadata  = turn.resultMetadata as { rowCount?: number } | null;
+      const chartType = chartSpec?.type ?? "bar";
+      const rowCount  = metadata?.rowCount ?? 0;
 
-  return createAIStreamResponse(stream, { signal: req.signal });
-});
+      const client = await getConfiguredClient();
+
+      const stream = await client.stream({
+        maxTokens: NARRATION_MAX_TOKENS,
+        messages: [
+          {
+            role: "user",
+            content: [
+              "Narrate the following query result in 2–3 sentences for a healthcare executive.",
+              `Question: "${question}"`,
+              `Rows returned: ${rowCount}`,
+              `Chart type: ${chartType}`,
+            ].join("\n"),
+          },
+        ],
+      });
+
+      auditLog({
+        event:      "ai.narrate",
+        actorId:    session.user.id,
+        resourceId: turnId,
+        metadata:   { rowCount, chartType },
+      });
+
+      return createAIStreamResponse(stream, { signal: req.signal });
+    },
+    {
+      limit:    20,
+      windowMs: 60_000,
+      keyFor:   (_req, { session }) => session.user.id,
+    }
+  )
+);

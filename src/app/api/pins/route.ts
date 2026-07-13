@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withAuth, assertCan, parseRequest, auditLog } from "@/lib/security";
+import { withAuth, assertCan, assertOwnership, parseRequest, auditLog } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { prisma } from "@/lib/prisma";
 
@@ -41,14 +41,8 @@ export const POST = withAuth(async (req, { session }) => {
     where: { id: conversationTurnId },
   });
 
-  if (!turn) {
-    return NextResponse.json({ error: "Turn not found" }, { status: 404 });
-  }
 
-  // ConversationTurn has userId directly — use it for ownership check.
-  if (turn.userId !== session.user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  assertOwnership(turn, session.user.id);
 
   const pin = await prisma.pinnedVisualization.create({
     data: {

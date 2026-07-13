@@ -108,8 +108,8 @@ function SharedAxes({ xAxis, yAxis }: { xAxis: string; yAxis: string }) {
       />
       <Tooltip
         contentStyle={TOOLTIP_STYLE}
-        formatter={(v: number) => [formatTick(v), yAxis]}
-        labelFormatter={(label: string) => `${xAxis}: ${label}`}
+        formatter={(v) => [formatTick(Number(v)), yAxis]}
+        labelFormatter={(label) => `${xAxis}: ${label ?? ""}`}
       />
     </>
   );
@@ -205,7 +205,9 @@ function ScatterChartView({ rows, xAxis, yAxis }: { rows: Record<string, unknown
         />
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
-          formatter={(v: number, name: string) => [formatTick(v), name]}
+          // Same reasoning as SharedAxes above: let TS infer Recharts' real
+          // (wider) parameter types instead of narrowing them ourselves.
+          formatter={(v, name) => [formatTick(Number(v)), String(name)]}
           labelFormatter={(_: unknown, payload) => {
             const pt = payload?.[0]?.payload as { label?: string } | undefined;
             return pt?.label ? `${xAxis}: ${pt.label}` : "";

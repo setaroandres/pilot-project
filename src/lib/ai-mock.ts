@@ -65,6 +65,33 @@ function buildMockText(options: AICompleteOptions): string {
     return "Mock AI provider active. No real API call was made.";
   }
 
+  // Adversarial probe fixture — deliberately planted, same spirit as the
+  // seeded adversarial facility name used to probe prompt-injection
+  // containment (prisma/seed.ts). If a question names a PHI-shaped column
+  // directly, the mock returns a QuerySpec that references it. This exists
+  // purely so the PHI deny-list in query-engine.ts can be exercised
+  // end-to-end through the real API (ask this question, confirm a 400, not
+  // data), instead of only being provable by reading the code. If this spec
+  // is ever NOT rejected downstream, that's a real bypass, not a mock quirk.
+  if (q.includes("ssn") || q.includes("social security")) {
+    return JSON.stringify({
+      entity:   "patient_outcomes",
+      measures: [
+        { column: "ssn", agg: "none", alias: "patient_ssn" },
+      ],
+      groupBy: [],
+      orderBy: [],
+      filters: [],
+      limit:   10,
+      chartSpec: {
+        type:  "table",
+        title: "Patient SSNs",
+      },
+      explanation:
+        "Adversarial probe fixture — this spec must be rejected by the PHI deny-list before it ever executes.",
+    });
+  }
+
   // Financial domain keywords
   if (
     q.includes("financial") ||

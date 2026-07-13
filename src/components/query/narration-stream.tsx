@@ -4,12 +4,14 @@ import { useEffect } from "react";
 import { useAIStream } from "@upstart13-com/aiden-realtime/react";
 
 interface NarrationStreamProps {
-  /** The user's original question — used to generate a contextual narration. */
-  question:  string;
-  rowCount:  number;
-  chartType: string;
+  /**
+   * The ConversationTurn id to narrate. The server looks up the question,
+   * row count, and chart type from this turn itself (and enforces
+   * ownership) — nothing else is trusted from the client.
+   */
+  turnId:   string;
   /** Static explanation returned by the query engine — shown on error or before stream starts. */
-  fallback:  string;
+  fallback: string;
 }
 
 /**
@@ -18,16 +20,16 @@ interface NarrationStreamProps {
  * the query engine if the stream errors.
  */
 export function NarrationStream({
-  question,
-  rowCount,
-  chartType,
+  turnId,
   fallback,
 }: NarrationStreamProps) {
-  const { text, isLoading, error, send } = useAIStream("/api/narrate");
+  const { text, isLoading, error, send } = useAIStream<{
+    turnId: string;
+  }>("/api/narrate");
 
   // Fire once when the result card is first rendered.
   useEffect(() => {
-    void send({ question, rowCount, chartType });
+    void send({ turnId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

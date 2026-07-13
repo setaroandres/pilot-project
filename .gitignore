@@ -51,4 +51,4 @@ yarn-error.log*
 .idea
 
 # proyect documentation
-/docs/project-documentation
+# /docs/project-documentation

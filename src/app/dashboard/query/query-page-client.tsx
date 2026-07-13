@@ -236,9 +236,7 @@ export function QueryPageClient({ canQuery, initialConversationId }: QueryPageCl
                 <div>
                   <CardTitle className="text-sm font-semibold">{turn.userQuery}</CardTitle>
                   <NarrationStream
-                    question={turn.userQuery}
-                    rowCount={turn.rowCount}
-                    chartType={turn.chartSpec?.type ?? "bar"}
+                    turnId={turn.id}
                     fallback={turn.explanation}
                   />
                 </div>

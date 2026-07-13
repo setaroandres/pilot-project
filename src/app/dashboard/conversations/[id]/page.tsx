@@ -12,6 +12,7 @@ import {
 } from "@upstart13-com/aiden-ui";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { DeleteConversationDialog } from "@/components/conversations/delete-conversation-dialog";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -58,12 +59,20 @@ export default async function ConversationDetailPage({ params }: PageProps) {
         title={conversation.title}
         subtitle={`${conversation.turns.length} turn${conversation.turns.length !== 1 ? "s" : ""} · ${new Date(conversation.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
         action={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/conversations">
-              <ArrowLeft className="mr-2 size-4" strokeWidth={1.5} />
-              All conversations
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/conversations">
+                <ArrowLeft className="mr-2 size-4" strokeWidth={1.5} />
+                All conversations
+              </Link>
+            </Button>
+            <DeleteConversationDialog
+              id={conversation.id}
+              title={conversation.title}
+              variant="button"
+              redirectTo="/dashboard/conversations"
+            />
+          </div>
         }
       />
 

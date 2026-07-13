@@ -2,10 +2,23 @@ import "server-only";
 import { z } from "zod";
 import type { AIMessage } from "@upstart13-com/aiden-ai";
 import { Prisma } from "@/generated/prisma/client";
-import { aidenConfig } from "@/../aiden.config";
 import { prisma } from "@/lib/prisma";
-import { ai } from "@/lib/ai";
+import { getConfiguredClient } from "@/lib/ai";
 import { log } from "@/lib/logger";
+
+/**
+ * Thrown when a QuerySpec references a column that fails validation —
+ * either the PHI deny-list or the per-entity allowlist (see
+ * validateColumn() below). Callers (API routes) catch this and return a
+ * clean 400; anything else is a genuine server error and is left to
+ * propagate as a 500, same as before this class existed.
+ */
+export class SpecValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpecValidationError";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // QuerySpec schema
@@ -30,8 +43,23 @@ const MeasureSchema = z.object({
   column: z.string().min(1),
   /** Aggregation function to apply. */
   agg:    z.enum(["sum", "avg", "count", "min", "max", "none"]),
-  /** Output column alias surfaced in results. */
-  alias:  z.string().min(1),
+  /**
+   * Output column alias surfaced in results.
+   *
+   * SECURITY: this string is interpolated into raw SQL via Prisma.raw
+   * (see selectExpr() below) — it MUST be constrained to a safe SQL
+   * identifier shape here, at the schema boundary, before it ever reaches
+   * that code. Without this regex, a malicious or malformed alias from
+   * the AI (or a compromised/misconfigured provider) reaches Prisma.raw
+   * unescaped. This also transitively protects orderBy: an orderBy.column
+   * is only allowed to skip validateColumn() when it exactly matches one
+   * of these aliases, so constraining the alias shape here closes that
+   * path too.
+   */
+  alias:  z.string().regex(
+    /^[a-z_][a-z0-9_]{0,63}$/i,
+    "alias must be a valid SQL identifier: letters, digits, underscore only, cannot start with a digit"
+  ),
 });
 
 const FilterSchema = z.object({
@@ -69,15 +97,11 @@ type Filter  = z.infer<typeof FilterSchema>;
 /** JSON Schema forwarded to the AI provider's structured-output mode. */
 const QUERY_SPEC_JSON_SCHEMA = z.toJSONSchema(QuerySpecSchema) as Record<string, unknown>;
 
-// ---------------------------------------------------------------------------
-// Security: per-entity column allowlists
-//
-// Every column referenced in a spec (measures, groupBy, orderBy, filters)
-// is checked against this allowlist before being interpolated into SQL.
-// Column names pass through Prisma.raw() — they are structural SQL, not
-// parameterizable — so the allowlist is the only guard. Values (filter
-// operands) are fully parameterized by Prisma's tagged template engine.
-// ---------------------------------------------------------------------------
+/** A QuerySpec is a small, fixed-shape JSON object — this is a generous
+ *  ceiling, not a target, so a misbehaving provider/model can't turn one
+ *  query into an unbounded-cost response. */
+const QUERY_SPEC_MAX_TOKENS = 1000;
+
 
 const COLUMN_ALLOWLISTS: Record<string, Set<string>> = {
   patient_outcomes: new Set([
@@ -109,9 +133,34 @@ const COLUMN_ALLOWLISTS: Record<string, Set<string>> = {
   ]),
 };
 
+
+const PHI_DENY_LIST = new Set([
+  // SSN
+  "ssn", "social_security_number",
+  // DOB
+  "dob", "date_of_birth", "birth_date",
+  // MRN
+  "mrn", "medical_record_number",
+  // Patient name
+  "patient_name", "first_name", "last_name", "full_name",
+  "patient_first_name", "patient_last_name",
+  // Other direct identifiers — beyond the three named in the UI copy,
+  // kept here as defense in depth since they're equally re-identifying.
+  "patient_id", "email", "phone", "phone_number", "address", "street_address",
+]);
+
+function isDeniedColumn(column: string): boolean {
+  return PHI_DENY_LIST.has(column.toLowerCase());
+}
+
 function validateColumn(entity: string, column: string): void {
+  if (isDeniedColumn(column)) {
+    throw new SpecValidationError(
+      `SPEC_VALIDATION_FAILED: column "${column}" is on the PHI deny-list and can never be queried`
+    );
+  }
   if (!COLUMN_ALLOWLISTS[entity]?.has(column)) {
-    throw new Error(
+    throw new SpecValidationError(
       `SPEC_VALIDATION_FAILED: column "${column}" is not allowed for entity "${entity}"`
     );
   }
@@ -254,6 +303,38 @@ function buildQuery(spec: QuerySpec): BuiltQuery {
   return { sql, displaySql: displayParts.join("\n") };
 }
 
+/**
+ * Postgres returns `COUNT(*)` (and `SUM()` over an `Int`/`bigint` column) as
+ * SQL type `bigint`. Prisma's `$queryRaw` surfaces that as a native JS
+ * `BigInt`, which `JSON.stringify` — and therefore `NextResponse.json` in
+ * every route that returns query results — cannot serialize at all. It
+ * throws `TypeError: Do not know how to serialize a BigInt` unconditionally,
+ * with no way to opt out, so this has to be handled before a response is
+ * ever built, not caught after the fact.
+ *
+ * Converting to `Number` here is safe for every aggregate this app can
+ * produce: this is a small demo dataset (dozens to a couple thousand seed
+ * rows per table — see prisma/seed.ts), nowhere close to
+ * `Number.MAX_SAFE_INTEGER` (2^53-1). This is the one place every query
+ * result passes through on its way out of the engine, so fixing it here
+ * covers `COUNT(*)` (the only aggregate that currently triggers it — no
+ * keyword branch in ai-mock.ts uses `sum` over an `Int` column yet) and any
+ * future `SUM()` over `claims_count`/similar without needing a matching
+ * `::int` cast added to every SQL-building call site that could produce a
+ * bigint-typed column.
+ */
+function normalizeBigInts(
+  rows: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      normalized[key] = typeof value === "bigint" ? Number(value) : value;
+    }
+    return normalized;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Schema context builder
 // ---------------------------------------------------------------------------
@@ -281,7 +362,12 @@ async function buildSchemaContext(): Promise<string> {
     lines.push(`TABLE: ${table}`);
     if (tableEntry) lines.push(`  ${tableEntry.definition}`);
 
-    for (const r of rows.filter((r) => r.columnName !== null)) {
+    // PHI-denied columns are excluded here too, not just at buildQuery() time
+    // — the AI should never be told a denied column exists as an option, on
+    // top of never being allowed to reference one in a spec.
+    for (const r of rows.filter(
+      (r) => r.columnName !== null && !isDeniedColumn(r.columnName)
+    )) {
       const caveat = r.caveats ? ` [caveat: ${r.caveats}]` : "";
       lines.push(
         `  - ${r.columnName} (${r.businessLabel}): ${r.definition}${caveat}`
@@ -375,21 +461,27 @@ export async function runQuery(
     { role: "user", content: question },
   ];
 
-  // 4. AI call — toggle between mock and real provider via aiden.config.ts.
-  const useMock = (aidenConfig.ai.providers.mock as { enabled: boolean }).enabled;
-  const client  = useMock ? await ai.mock() : await ai.anthropic();
+  // 4. AI call — provider chosen by the single shared switch in src/lib/ai.ts
+  //    (toggle via aiden.config.ts ai.providers.mock.enabled).
+  const client = await getConfiguredClient();
 
   const response = await client.complete({
     system:         systemPrompt,
     messages,
     responseSchema: QUERY_SPEC_JSON_SCHEMA,
     temperature:    0,
+    maxTokens:      QUERY_SPEC_MAX_TOKENS,
   });
 
   // 5. Validate AI response shape with Zod.
+  //
+  // Deliberately logs only a length, never response.text itself (even
+  // truncated) — the AI's raw output can echo back user-provided content
+  // or catalog metadata, and "bodies and PHI are never logged" applies to
+  // AI output the same as it applies to the user's question.
   if (!response.parsed) {
     log.error(
-      { userId, conversationId, preview: response.text.slice(0, 200) },
+      { userId, conversationId, responseLength: response.text.length },
       "query-engine: AI returned unparseable response"
     );
     throw new Error("The AI returned an invalid response. Please rephrase your question.");
@@ -414,7 +506,8 @@ export async function runQuery(
 
   // 7. Execute against the analytics tables — no AI-authored SQL touches the DB.
   const execStart   = Date.now();
-  const rows        = await prisma.$queryRaw<Record<string, unknown>[]>(builtSql);
+  const rawRows     = await prisma.$queryRaw<Record<string, unknown>[]>(builtSql);
+  const rows        = normalizeBigInts(rawRows);
   const executionMs = Date.now() - execStart;
 
   log.info(

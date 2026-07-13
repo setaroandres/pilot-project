@@ -95,3 +95,15 @@ export const ai = {
       apiKey: process.env.COHERE_API_KEY,
     }),
 };
+
+/**
+ * The single provider-switch decision point for the app. Every AI call
+ * site (query engine, narration) should call this instead of choosing a
+ * provider itself, so toggling `aiden.config.ts` ai.providers.mock.enabled
+ * is genuinely a one-line, zero-route-edit switch everywhere at once —
+ * not just in whichever route happened to implement the check first.
+ */
+export function getConfiguredClient(): Promise<AIClient> {
+  const useMock = providerModels.mock.enabled;
+  return useMock ? ai.mock() : ai.anthropic();
+}
